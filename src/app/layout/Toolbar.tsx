@@ -286,6 +286,24 @@ export const Toolbar: React.FC = () => {
           <span className="toolbar-btn-label">Viewer</span>
         </button>
 
+        <button
+          className="toolbar-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent("editor:export-glb"))}
+          title="Export scene as GLB file"
+        >
+          <span className="toolbar-btn-icon">📦</span>
+          <span className="toolbar-btn-label">GLB</span>
+        </button>
+
+        <button
+          className="toolbar-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent("editor:export-screenshot"))}
+          title="Capture screenshot (PNG)"
+        >
+          <span className="toolbar-btn-icon">📷</span>
+          <span className="toolbar-btn-label">Screenshot</span>
+        </button>
+
         <div className="toolbar-divider" />
 
         <button className="toolbar-btn" onClick={toggleOutliner} title="Toggle Outliner">

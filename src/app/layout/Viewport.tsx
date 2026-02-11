@@ -11,7 +11,8 @@ import { TimelineRuntime } from "../../core/timeline/timelineRuntime";
 import { useEditorStore } from "../../store/editorStore";
 import { commandStack } from "../../core/commands/commandStack";
 import { showToast } from "../../ui/Toast";
-import { saveProject } from "../../core/io/projectStorage";
+import { saveProject, importFromJSON, loadAutoSave } from "../../core/io/projectStorage";
+import { rebuildSceneFromDocument } from "../../core/io/sceneRebuilder";
 import type { Transform, SceneNode, NodeId } from "../../core/document/types";
 import "./Viewport.css";
 
@@ -65,6 +66,21 @@ export const Viewport: React.FC = () => {
     if (initialSettings) {
       backend.applySceneSettings(initialSettings);
     }
+
+    // Load autosave if exists (restore last session)
+    loadAutoSave().then((savedDoc) => {
+      if (!savedDoc || !savedDoc.rootIds?.length || !backend) return;
+
+      const docForRebuild = structuredClone(savedDoc);
+      for (const node of Object.values(docForRebuild.nodes)) {
+        delete node.runtimeObjectUuid;
+      }
+
+      useEditorStore.getState().setDocument(docForRebuild);
+      rebuildSceneFromDocument(backend, docForRebuild).then((updatedDoc) => {
+        useEditorStore.getState().updateDocument(updatedDoc);
+      });
+    });
 
     // Initialize Interaction Runtime
     interactionRuntime = new InteractionRuntime(
@@ -332,10 +348,31 @@ export const Viewport: React.FC = () => {
       const file = (e as CustomEvent).detail?.file as File;
       if (!file || !backend) return;
 
-      const url = URL.createObjectURL(file);
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      const isProjectJson =
+        ext === "json" || file.name.toLowerCase().endsWith(".multiview.json");
 
       try {
+        if (isProjectJson) {
+          // MultiView project file — rebuild scene from document
+          const doc = await importFromJSON(file);
+          const { setDocument, updateDocument } = useEditorStore.getState();
+
+          // Strip invalid runtimeObjectUuids before rebuild
+          const docForRebuild = structuredClone(doc);
+          for (const node of Object.values(docForRebuild.nodes)) {
+            delete node.runtimeObjectUuid;
+          }
+
+          setDocument(docForRebuild);
+          const updatedDoc = await rebuildSceneFromDocument(backend, docForRebuild);
+          updateDocument(updatedDoc);
+
+          showToast(`Loaded project: ${doc.projectName}`, "success");
+          return;
+        }
+
+        const url = URL.createObjectURL(file);
         let result;
 
         if (ext === "fbx") {
@@ -343,7 +380,6 @@ export const Viewport: React.FC = () => {
         } else if (ext === "obj") {
           result = await backend.loadOBJ(url);
         } else {
-          // Default: glTF / GLB
           result = await backend.loadGLTF(url);
         }
 
@@ -677,13 +713,53 @@ export const Viewport: React.FC = () => {
       window.removeEventListener("editor:update-particle-emitter", handleUpdateParticleEmitter);
   }, []);
 
+  // ── Export Screenshot ──
+  useEffect(() => {
+    const handleExportScreenshot = () => {
+      if (!backend) return;
+      const dataUrl = backend.captureScreenshot("image/png");
+      const a = window.document.createElement("a");
+      a.href = dataUrl;
+      a.download = `${useEditorStore.getState().document.projectName.replace(/\s+/g, "_")}_screenshot.png`;
+      a.click();
+      showToast("Screenshot saved", "success");
+    };
+    window.addEventListener("editor:export-screenshot", handleExportScreenshot);
+    return () => window.removeEventListener("editor:export-screenshot", handleExportScreenshot);
+  }, []);
+
+  // ── Export GLB ──
+  useEffect(() => {
+    const handleExportGLB = async () => {
+      if (!backend) return;
+      try {
+        const buffer = await backend.exportToGLB();
+        const blob = new Blob([buffer], { type: "model/gltf-binary" });
+        const url = URL.createObjectURL(blob);
+        const a = window.document.createElement("a");
+        a.href = url;
+        a.download = `${useEditorStore.getState().document.projectName.replace(/\s+/g, "_")}.glb`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Exported as GLB", "success");
+      } catch (err) {
+        console.error("GLB export failed:", err);
+        showToast("Failed to export GLB", "error");
+      }
+    };
+    window.addEventListener("editor:export-glb", handleExportGLB);
+    return () => window.removeEventListener("editor:export-glb", handleExportGLB);
+  }, []);
+
   // ── Export Viewer HTML ──
   useEffect(() => {
     const handleExportViewer = async () => {
       if (!backend) return;
       const { exportViewerHTML } = await import("../../core/io/viewerExport");
-      const doc = useEditorStore.getState().document;
-      const html = exportViewerHTML(doc, backend);
+      const state = useEditorStore.getState();
+      const doc = state.document;
+      const opts = state.viewerExportOptions;
+      const html = exportViewerHTML(doc, backend, opts);
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement("a");
@@ -1027,13 +1103,18 @@ export const Viewport: React.FC = () => {
         </div>
       )}
 
-      {/* Viewport hints */}
+      {/* Intro Screen (empty scene) */}
       {Object.keys(document.nodes).length === 0 && (
-        <div className="viewport-empty-hint">
-          <div className="viewport-empty-icon">✦</div>
-          <div className="viewport-empty-title">Welcome to MultiView</div>
-          <div className="viewport-empty-subtitle">
-            Import a 3D model or add a primitive to begin
+        <div className="viewport-intro">
+          <div className="viewport-intro-content">
+            <img
+              src="/assets/Logo.png"
+              alt="MultiVIEW"
+              className="viewport-intro-logo"
+            />
+            <div className="viewport-intro-subtitle">
+              Import a 3D model or add a primitive to begin
+            </div>
           </div>
         </div>
       )}

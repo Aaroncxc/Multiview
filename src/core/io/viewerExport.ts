@@ -40,11 +40,18 @@ interface ViewerNodeData {
   interactions?: SceneNode["interactions"];
 }
 
+export interface ViewerExportOptions {
+  autospin?: number;      // 0=off, >0 speed, <0 reverse (rad/s)
+  minDistance?: number;  // orbit min zoom
+  maxDistance?: number;  // orbit max zoom
+}
+
 interface ViewerPackData {
   projectName: string;
   sceneSettings: SceneDocument["sceneSettings"];
   nodes: ViewerNodeData[];
   cameras: { label: string; position: [number, number, number]; rotation: [number, number, number] }[];
+  viewerOptions?: ViewerExportOptions;
 }
 
 /**
@@ -52,7 +59,8 @@ interface ViewerPackData {
  */
 export function exportViewerHTML(
   doc: SceneDocument,
-  backend: ThreeBackend
+  backend: ThreeBackend,
+  options?: ViewerExportOptions
 ): string {
   // Collect nodes
   const nodes: ViewerNodeData[] = [];
@@ -124,6 +132,7 @@ export function exportViewerHTML(
     sceneSettings: doc.sceneSettings,
     nodes,
     cameras,
+    viewerOptions: options ?? {},
   };
 
   return generateHTML(pack);
@@ -197,6 +206,9 @@ const orbit=new OrbitControls(camera,canvas);
 orbit.enableDamping=true;
 orbit.dampingFactor=.08;
 orbit.enablePan=false;
+const vo=PACK.viewerOptions||{};
+if(vo.minDistance!=null)orbit.minDistance=vo.minDistance;
+if(vo.maxDistance!=null)orbit.maxDistance=vo.maxDistance;
 
 // Ambient
 const ambient=new THREE.AmbientLight(ss?.ambientLightColor??'#ffffff',ss?.ambientLightIntensity??.4);
@@ -457,6 +469,13 @@ function animate(){
     camera.position.lerpVectors(camTrans.fromPos,camTrans.toPos,e);
     orbit.target.lerpVectors(camTrans.fromTarget,camTrans.toTarget,e);
     if(p>=1)camTrans=null;
+  }
+
+  // Autospin (turntable)
+  if(vo.autospin){
+    const v=camera.position.clone().sub(orbit.target);
+    v.applyAxisAngle(new THREE.Vector3(0,1,0),vo.autospin*dt);
+    camera.position.copy(orbit.target).add(v);
   }
 
   // Transitions

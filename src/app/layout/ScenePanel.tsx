@@ -38,6 +38,62 @@ const AddParticleEmitterSection: React.FC = () => {
   );
 };
 
+// ── Viewer Export Options ──
+
+const ViewerExportOptionsSection: React.FC = () => {
+  const options = useEditorStore((s) => s.viewerExportOptions);
+  const setOptions = useEditorStore((s) => s.setViewerExportOptions);
+
+  return (
+    <div className="scene-section">
+      <span className="scene-section-label">Viewer Export</span>
+      <div className="scene-subsection">
+        <label className="scene-subsection-label">Autospin</label>
+        <input
+          type="number"
+          className="scene-numeric-input"
+          value={options.autospin ?? 0}
+          onChange={(e) =>
+            setOptions({ autospin: parseFloat(e.target.value) || 0 })
+          }
+          step={0.1}
+          placeholder="0 = off"
+        />
+      </div>
+      <div className="scene-subsection">
+        <label className="scene-subsection-label">Min Zoom</label>
+        <input
+          type="number"
+          className="scene-numeric-input"
+          value={options.minDistance ?? ""}
+          onChange={(e) =>
+            setOptions({
+              minDistance: e.target.value ? parseFloat(e.target.value) : undefined,
+            })
+          }
+          step={0.5}
+          placeholder="default"
+        />
+      </div>
+      <div className="scene-subsection">
+        <label className="scene-subsection-label">Max Zoom</label>
+        <input
+          type="number"
+          className="scene-numeric-input"
+          value={options.maxDistance ?? ""}
+          onChange={(e) =>
+            setOptions({
+              maxDistance: e.target.value ? parseFloat(e.target.value) : undefined,
+            })
+          }
+          step={1}
+          placeholder="default"
+        />
+      </div>
+    </div>
+  );
+};
+
 // ── Add Camera Section ──
 
 const AddCameraSection: React.FC = () => {
@@ -494,6 +550,7 @@ export const ScenePanel: React.FC = () => {
 
   return (
     <div className="scene-panel">
+      <ViewerExportOptionsSection />
       <CameraSection />
       <AddCameraSection />
       <AddLightSection />

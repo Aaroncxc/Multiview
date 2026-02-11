@@ -2,6 +2,8 @@
 
 > Based on [Apple Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines)
 > adapted for a web-based 3D editor application.
+>
+> Siehe auch: [ROADMAP.md](./ROADMAP.md) für Feature-Planung & Sub-Phasen.
 
 ---
 
@@ -255,6 +257,44 @@
 - Inline error messages near the source (not global alerts for recoverable errors)
 - Provide clear recovery action ("File format not supported. Try .glTF or .GLB")
 - Non-blocking toasts for transient feedback ("Saved", "Exported")
+
+---
+
+## 10. HIG Compliance Checklist (Stand: 2025)
+
+### ✅ Erfüllt
+- **Clarity** — Labels, Icons, Tooltips auf allen Buttons
+- **Deference** — Viewport ist zentral, Panels dezent
+- **Depth** — Panels mit Schatten, Z-Index-Hierarchie
+- **Consistency** — Einheitliche Slider, Picker, Shortcuts
+- **4px Grid** — Spacing aus tokens
+- **32px Min Target** — `--min-target-size` für interaktive Elemente
+- **Dark Theme** — Primäre Palette definiert
+- **Undo/Redo** — Destruktive Aktionen rückgängig
+- **Shortcuts** — W/E/R, Delete, F, Ctrl+Z
+- **Disclosure Buttons** — Chevron, aria-expanded, aria-controls (Material Advanced)
+- **prefers-reduced-motion** — Motion-Tokens auf 0ms reduzierbar
+
+### 🔶 Zu prüfen / verbessern
+- **Kontrast 4.5:1** — Regelmäßig prüfen (z.B. `--text-secondary` auf `--bg-panel`)
+- **Keyboard-Navigation** — Vollständige Tab-Reihenfolge in allen Panels
+- **ARIA-Rollen** — Tree, Slider, Dialog explizit beschriften
+- **Focus-Indikatoren** — 2px Accent-Outline bei :focus-visible
+- **Screen Reader** — Status-Ankündigungen („Saved“, „Deleted“) via aria-live
+
+### ⬜ Noch offen
+- **Light Theme** — Token-Varianten für Hellmodus
+- **prefers-contrast** — Hochkontrast-Varianten
+- **Responsive** — Breakpoints < 1024px testen
+- **RTL** — Keine explizite RTL-Unterstützung geplant
+
+### Disclosure / Dropdown Pattern (HIG + WAI-ARIA)
+- Button mit Chevron (▸/▾) — visuelles Affordance
+- `aria-expanded` — State für Screen Reader
+- `aria-controls` — Verknüpfung mit Inhalt
+- `role="region"` + `aria-label` auf Inhalt
+- Min. 32px Klickfläche
+- Enter/Space toggeln (natürlich bei `<button>`)
 
 ---
 

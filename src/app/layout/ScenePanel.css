@@ -34,6 +34,18 @@
 .scene-subsection-label {
   font: var(--text-caption);
   color: var(--text-secondary);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.scene-numeric-input {
+  width: 100%;
+  font: var(--text-numeric);
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
 }
 
 /* ── Toggles ── */

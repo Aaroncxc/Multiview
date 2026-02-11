@@ -68,33 +68,41 @@
   color: var(--accent);
 }
 
-/* ── Empty State Hint ── */
+/* ── Intro Screen (empty scene) ── */
 
-.viewport-empty-hint {
+.viewport-intro {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  pointer-events: none;
+  inset: 0;
   z-index: 1;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
-.viewport-empty-icon {
-  font-size: 48px;
-  color: var(--accent);
-  margin-bottom: var(--space-4);
-  opacity: 0.6;
+.viewport-intro-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+  padding: var(--space-6);
 }
 
-.viewport-empty-title {
-  font: var(--text-title);
-  color: var(--text-primary);
-  margin-bottom: var(--space-2);
-  font-size: 18px;
+.viewport-intro-logo {
+  max-width: 280px;
+  width: 90%;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
 }
 
-.viewport-empty-subtitle {
+.viewport-intro-subtitle {
   font: var(--text-body);
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
 }

@@ -620,16 +620,28 @@ const MaterialSection: React.FC = () => {
         </label>
       </div>
 
-      {/* ── Advanced Toggle ── */}
-      <button
-        className="inspector-advanced-toggle"
-        onClick={() => setShowAdvanced(!showAdvanced)}
-      >
-        {showAdvanced ? "▾ Advanced" : "▸ Advanced (Glass, Clearcoat, Sheen)"}
-      </button>
-
-      {showAdvanced && (
-        <>
+      {/* ── Advanced Dropdown (HIG: discoverable, clear affordance) ── */}
+      <div className="inspector-dropdown-section">
+        <button
+          className="inspector-dropdown-btn"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          aria-expanded={showAdvanced}
+          aria-controls="material-advanced-content"
+          title="Glass, Clearcoat, Sheen, Iridescence"
+        >
+          <span className="inspector-dropdown-chevron">
+            {showAdvanced ? "▾" : "▸"}
+          </span>
+          <span className="inspector-dropdown-label">Advanced</span>
+          <span className="inspector-dropdown-hint">Glass, Clearcoat, Sheen</span>
+        </button>
+        {showAdvanced && (
+        <div
+          id="material-advanced-content"
+          className="inspector-dropdown-content"
+          role="region"
+          aria-label="Advanced material settings"
+        >
           <div className="inspector-subsection">
             <Slider
               label="Transmission (Glass)"
@@ -686,8 +698,10 @@ const MaterialSection: React.FC = () => {
               onChange={(v) => updateMaterial("iridescence", v)}
             />
           </div>
-        </>
-      )}
+        </div>
+        )}
+
+      </div>
 
       {/* ── Texture Maps ── */}
       <div className="inspector-subsection">

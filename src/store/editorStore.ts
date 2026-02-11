@@ -113,6 +113,10 @@ export interface EditorState {
 
   // Persistence
   triggerAutoSave: () => void;
+
+  // Viewer Export options (for portfolio publish)
+  viewerExportOptions: { autospin?: number; minDistance?: number; maxDistance?: number };
+  setViewerExportOptions: (opts: Partial<{ autospin: number; minDistance: number; maxDistance: number }>) => void;
 }
 
 // Autosave debounce
@@ -135,6 +139,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   canRedo: false,
   undoLabel: null,
   redoLabel: null,
+  viewerExportOptions: {},
+  setViewerExportOptions: (opts) =>
+    set((s) => ({
+      viewerExportOptions: { ...s.viewerExportOptions, ...opts },
+    })),
 
   // ── Document Actions ──
 

@@ -23,6 +23,7 @@ import {
   EffectPass,
 } from "postprocessing";
 import * as CANNON from "cannon-es";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import type { Transform, SceneSettings, LightData, ParticleEmitterData } from "../document/types";
 
 export interface LoadGLTFResult {
@@ -1293,10 +1294,14 @@ export class ThreeBackend {
     const obj = this.objectByUuid.get(objectUuid);
     if (!obj) return;
 
-    // Create BoxHelper — bright blue bounding box
+    // Create BoxHelper — bright blue bounding box (always visible, not occluded)
     this.selectionHelper = new THREE.BoxHelper(obj, 0x4da6ff);
     this.selectionHelper.name = "__selection_box";
     this.selectionHelper.raycast = () => {}; // not pickable
+    this.selectionHelper.renderOrder = 9999; // draw last, on top
+    const mat = this.selectionHelper.material as THREE.LineBasicMaterial;
+    mat.depthTest = false;
+    mat.depthWrite = false;
     this.scene.add(this.selectionHelper);
   }
 
@@ -1618,6 +1623,14 @@ export class ThreeBackend {
   // Remove Object
   // ============================================================
 
+  /** Remove all user objects (for scene rebuild / project load) */
+  clearAllUserObjects() {
+    const uuids = Array.from(this.objectByUuid.keys());
+    for (const uuid of uuids) {
+      this.removeObject(uuid);
+    }
+  }
+
   removeObject(objectUuid: string) {
     const obj = this.objectByUuid.get(objectUuid);
     if (!obj) return;
@@ -1869,6 +1882,41 @@ export class ThreeBackend {
   clearEnvironment() {
     this.scene.environment = null;
     this.scene.background = null;
+  }
+
+  // ============================================================
+  // glTF/GLB Export
+  // ============================================================
+
+  /** Capture current viewport as PNG/JPEG data URL */
+  captureScreenshot(format: "image/png" | "image/jpeg" = "image/png", quality?: number): string {
+    return this.canvas.toDataURL(format, quality);
+  }
+
+  async exportToGLB(): Promise<ArrayBuffer> {
+    const exportScene = new THREE.Scene();
+    exportScene.name = "MultiView Export";
+
+    for (const obj of this.objectByUuid.values()) {
+      const clone = obj.clone(true);
+      exportScene.add(clone);
+    }
+
+    const exporter = new GLTFExporter();
+    return new Promise((resolve, reject) => {
+      exporter.parse(
+        exportScene,
+        (result) => {
+          if (result instanceof ArrayBuffer) {
+            resolve(result);
+          } else {
+            reject(new Error("Expected binary GLB"));
+          }
+        },
+        reject,
+        { binary: true }
+      );
+    });
   }
 
   // ============================================================

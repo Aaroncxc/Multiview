@@ -511,8 +511,11 @@ export class ThreeBackend {
         spawnOne(found);
       }
 
-      (points.geometry.attributes.position as THREE.BufferAttribute).array = positions;
-      points.geometry.attributes.position.needsUpdate = true;
+      const posAttr = points.geometry.attributes.position as THREE.BufferAttribute | undefined;
+      if (posAttr) {
+        (posAttr as any).array = positions;
+        posAttr.needsUpdate = true;
+      }
     }
   }
 

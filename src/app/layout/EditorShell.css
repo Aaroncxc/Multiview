@@ -1,0 +1,75 @@
+/* ============================================================
+   Editor Shell Layout
+   Apple HIG: Deference — viewport is the hero
+   ============================================================ */
+
+.editor-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Outliner (Left Sidebar) ── */
+.editor-outliner {
+  width: var(--outliner-width);
+  min-width: 180px;
+  max-width: 360px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-panel);
+  overflow: hidden;
+}
+
+/* ── Center Column (Viewport + Timeline) ── */
+.editor-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Viewport (Center) ── */
+.editor-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--bg-viewport);
+  z-index: var(--z-viewport);
+}
+
+/* ── Timeline (Bottom) ── */
+.editor-timeline {
+  height: 220px;
+  min-height: 120px;
+  max-height: 350px;
+  border-top: 1px solid var(--border-subtle);
+  z-index: var(--z-panel);
+  overflow: hidden;
+}
+
+/* ── Inspector (Right Sidebar) ── */
+.editor-inspector {
+  width: var(--inspector-width);
+  min-width: 220px;
+  max-width: 400px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-panel);
+  overflow-y: auto;
+  overflow-x: hidden;
+}

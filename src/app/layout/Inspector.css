@@ -1,0 +1,424 @@
+/* ============================================================
+   Inspector — Property Panel
+   Phase 2: + Material editor, presets, textures
+   Apple HIG: Clear sections, accessible controls
+   ============================================================ */
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.inspector-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.inspector-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--ease-micro), color var(--ease-micro);
+}
+
+.inspector-back-btn:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.inspector-title {
+  font: var(--text-title);
+  color: var(--text-primary);
+}
+
+.inspector-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: var(--space-4);
+}
+
+/* ── Empty State ── */
+
+.inspector-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+}
+
+.inspector-empty-text {
+  font: var(--text-body);
+  color: var(--text-disabled);
+}
+
+/* ── Section ── */
+
+.inspector-section {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.inspector-section-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+}
+
+.inspector-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.inspector-section-btn {
+  font: var(--text-caption);
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background var(--ease-micro);
+}
+
+.inspector-section-btn:hover {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+/* ── Node Info ── */
+
+.inspector-node-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.inspector-name-input {
+  flex: 1;
+  font: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  min-height: var(--min-target-size);
+  transition: border-color var(--ease-micro);
+}
+
+.inspector-name-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.inspector-node-type {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+/* ── Subsections (Position/Rotation/Scale) ── */
+
+.inspector-subsection {
+  margin-bottom: var(--space-2);
+}
+
+.inspector-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.inspector-subsection-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.inspector-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-1);
+}
+
+/* ── Numeric Field ── */
+
+.numeric-field {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: border-color var(--ease-micro);
+}
+
+.numeric-field:focus-within {
+  border-color: var(--accent);
+}
+
+.numeric-label {
+  font: var(--text-numeric);
+  padding: var(--space-1) var(--space-1);
+  min-width: 20px;
+  text-align: center;
+  cursor: ew-resize;
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.numeric-input {
+  font: var(--text-numeric);
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-1) var(--space-1);
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.numeric-input::-webkit-outer-spin-button,
+.numeric-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ── Toggles ── */
+
+.inspector-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.inspector-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.inspector-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+/* ── Advanced Toggle ── */
+
+.inspector-advanced-toggle {
+  width: 100%;
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--ease-micro);
+}
+
+.inspector-advanced-toggle:hover {
+  color: var(--accent);
+}
+
+/* ── Material Presets ── */
+
+.material-presets {
+  margin-bottom: var(--space-3);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}
+
+.material-preset-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: var(--space-2);
+  overflow-x: auto;
+}
+
+.material-preset-tab {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--ease-micro), color var(--ease-micro);
+}
+
+.material-preset-tab:hover {
+  background: var(--bg-panel-hover);
+}
+
+.material-preset-tab.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.material-preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.material-preset-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--ease-micro);
+}
+
+.material-preset-item:hover {
+  background: var(--accent-muted);
+}
+
+.material-preset-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.material-preset-name {
+  font: var(--text-caption);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Texture Maps ── */
+
+.texture-map-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin-top: var(--space-1);
+}
+
+.texture-map-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-2) var(--space-1);
+  background: var(--bg-input);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--ease-micro), background var(--ease-micro);
+}
+
+.texture-map-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.texture-map-icon {
+  font-size: 16px;
+}
+
+.texture-map-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+/* ── Delete Button ── */
+
+.inspector-delete-btn {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--min-target-size);
+  font: var(--text-body);
+  color: var(--color-error);
+  background: transparent;
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--ease-micro), color var(--ease-micro);
+}
+
+.inspector-delete-btn:hover {
+  background: rgba(255, 69, 58, 0.1);
+}
+
+/* ── Modeling Tools ── */
+.inspector-select {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.modeling-btn-row {
+  display: flex;
+  gap: 4px;
+}
+
+.modeling-btn {
+  flex: 1;
+  padding: 6px 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background var(--ease-micro), color var(--ease-micro);
+  white-space: nowrap;
+}
+
+.modeling-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.inspector-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}

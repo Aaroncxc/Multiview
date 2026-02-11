@@ -1,0 +1,297 @@
+/* ============================================================
+   Interactions Panel — States, Events, Actions
+   Phase 4: The "Spline" interaction system
+   ============================================================ */
+
+.ip-panel {
+  padding-bottom: var(--space-4);
+}
+
+/* ── Section ── */
+
+.ip-section {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+}
+
+.ip-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.ip-section-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ip-add-btn {
+  font: var(--text-caption);
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: background var(--ease-micro);
+}
+
+.ip-add-btn:hover {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+.ip-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ip-empty {
+  font: var(--text-caption);
+  color: var(--text-disabled);
+  padding: var(--space-2) 0;
+}
+
+/* ── State Card ── */
+
+.ip-state {
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.ip-state-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  cursor: pointer;
+  transition: background var(--ease-micro);
+}
+
+.ip-state-header:hover {
+  background: var(--bg-panel-hover);
+}
+
+.ip-expand-icon {
+  font-size: 10px;
+  color: var(--text-disabled);
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.ip-state-name {
+  flex: 1;
+  font: var(--text-body);
+  font-weight: 500;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  min-width: 0;
+  padding: 0;
+}
+
+.ip-state-name:focus {
+  outline: none;
+  color: var(--accent);
+}
+
+.ip-delete-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-disabled);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: color var(--ease-micro), background var(--ease-micro);
+}
+
+.ip-delete-btn:hover {
+  color: var(--color-error);
+  background: rgba(255, 69, 58, 0.1);
+}
+
+/* ── State Body (overrides) ── */
+
+.ip-state-body {
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.ip-override-group {
+  margin-bottom: var(--space-2);
+}
+
+.ip-override-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: var(--space-1);
+}
+
+.ip-override-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 13px;
+  height: 13px;
+}
+
+/* ── Vec3 Fields ── */
+
+.ip-vec3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 3px;
+}
+
+.ip-vec3-field {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.ip-vec3-label {
+  font: var(--text-numeric);
+  padding: 2px 4px;
+  color: var(--text-disabled);
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.ip-vec3-field input {
+  font: var(--text-numeric);
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 4px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.ip-vec3-field input::-webkit-outer-spin-button,
+.ip-vec3-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+/* ── Event Row ── */
+
+.ip-event-row {
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.ip-event-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  cursor: pointer;
+  transition: background var(--ease-micro);
+}
+
+.ip-event-header:hover {
+  background: var(--bg-panel-hover);
+}
+
+.ip-event-trigger {
+  font: var(--text-caption);
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.ip-event-arrow {
+  color: var(--text-disabled);
+  font-size: 12px;
+}
+
+.ip-event-action-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Event Body ── */
+
+.ip-event-body {
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.ip-field {
+  margin-bottom: var(--space-2);
+}
+
+.ip-field label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 3px;
+}
+
+.ip-field select,
+.ip-field input[type="text"] {
+  width: 100%;
+  font: var(--text-caption);
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  min-height: 28px;
+}
+
+.ip-field select:focus,
+.ip-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Preview Buttons ── */
+
+.ip-preview-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ip-preview-btn {
+  font: var(--text-caption);
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: border-color var(--ease-micro), background var(--ease-micro);
+}
+
+.ip-preview-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+  color: var(--accent);
+}

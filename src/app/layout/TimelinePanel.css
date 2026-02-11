@@ -1,0 +1,519 @@
+/* ============================================================
+   Timeline Panel — Keyframe animation editor
+   Phase 5: Dark, compact, professional timeline feel
+   ============================================================ */
+
+.tl-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-panel);
+  overflow: hidden;
+  font: var(--text-caption);
+}
+
+/* ── Header ── */
+
+.tl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+/* ── Clip Tabs ── */
+
+.tl-clips {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.tl-clip-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--ease-micro);
+}
+
+.tl-clip-tab.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tl-clip-tab:hover {
+  background: var(--bg-panel-hover);
+}
+
+.tl-clip-close {
+  font-size: 12px;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.tl-clip-close:hover {
+  opacity: 1;
+  color: var(--color-error);
+}
+
+.tl-clip-add {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-input);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tl-clip-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Transport Controls ── */
+
+.tl-transport {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.tl-transport-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background var(--ease-micro);
+}
+
+.tl-transport-btn:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.tl-transport-active {
+  background: var(--accent-muted);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tl-time-display {
+  font: var(--text-numeric);
+  color: var(--accent);
+  min-width: 60px;
+  text-align: center;
+}
+
+.tl-time-separator {
+  color: var(--text-disabled);
+}
+
+.tl-duration-input {
+  width: 48px;
+  font: var(--text-numeric);
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.tl-duration-input::-webkit-outer-spin-button,
+.tl-duration-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+.tl-time-unit {
+  color: var(--text-disabled);
+  font-size: 10px;
+}
+
+.tl-loop-toggle {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.tl-loop-toggle input {
+  accent-color: var(--accent);
+  width: 12px;
+  height: 12px;
+}
+
+/* ── Empty State ── */
+
+.tl-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-disabled);
+  padding: var(--space-4);
+}
+
+/* ── Body (tracks + timeline) ── */
+
+.tl-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Track List (left side) ── */
+
+.tl-track-list {
+  width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.tl-track-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tl-add-track-select {
+  font: var(--text-caption);
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.tl-track-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--space-2);
+  height: 28px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--ease-micro);
+}
+
+.tl-track-item:hover {
+  background: var(--bg-panel-hover);
+}
+
+.tl-track-item.selected {
+  background: var(--accent-muted);
+}
+
+.tl-track-node {
+  color: var(--text-secondary);
+  font-size: 10px;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-track-prop {
+  color: var(--text-primary);
+  font-weight: 500;
+  flex: 1;
+  font-size: 11px;
+}
+
+.tl-track-delete {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-disabled);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ease-micro);
+}
+
+.tl-track-item:hover .tl-track-delete {
+  opacity: 1;
+}
+
+.tl-track-delete:hover {
+  color: var(--color-error);
+}
+
+.tl-track-empty {
+  padding: var(--space-3) var(--space-2);
+  color: var(--text-disabled);
+  font-size: 10px;
+  text-align: center;
+}
+
+/* ── Timeline Area (right side) ── */
+
+.tl-timeline-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ── Ruler ── */
+
+.tl-ruler {
+  height: 20px;
+  position: relative;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.tl-ruler-tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.tl-ruler-label {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 9px;
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+
+/* ── Playhead ── */
+
+.tl-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 5;
+  pointer-events: none;
+  transition: left 0.03s linear;
+}
+
+/* ── Scrub Bar ── */
+
+.tl-scrub {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-input);
+  border: none;
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tl-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: grab;
+}
+
+/* ── Track Rows ── */
+
+.tl-track-rows {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.tl-track-row {
+  height: 28px;
+  position: relative;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.tl-track-row.selected {
+  background: rgba(77, 166, 255, 0.04);
+}
+
+.tl-track-row:hover {
+  background: var(--bg-panel-hover);
+}
+
+/* ── Keyframe Dots ── */
+
+.tl-keyframe-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border: 2px solid var(--bg-panel);
+  border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  z-index: 3;
+  cursor: pointer;
+  transition: transform var(--ease-micro);
+}
+
+.tl-keyframe-dot:hover {
+  transform: translate(-50%, -50%) rotate(45deg) scale(1.3);
+  background: #fff;
+}
+
+/* ── Add Keyframe button at playhead ── */
+
+.tl-add-kf-btn {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 2px;
+  color: var(--text-disabled);
+  cursor: pointer;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity var(--ease-micro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tl-track-row:hover .tl-add-kf-btn {
+  opacity: 0.6;
+}
+
+.tl-add-kf-btn:hover {
+  opacity: 1;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Keyframe Editor Strip ── */
+
+.tl-kf-editor {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-1) var(--space-2);
+  flex-shrink: 0;
+  max-height: 90px;
+  overflow-y: auto;
+}
+
+.tl-kf-editor-header {
+  margin-bottom: var(--space-1);
+}
+
+.tl-kf-editor-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tl-kf-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tl-kf-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+.tl-kf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tl-kf-field label {
+  font-size: 8px;
+  color: var(--text-disabled);
+  text-transform: uppercase;
+}
+
+.tl-kf-field input,
+.tl-kf-field select {
+  font: var(--text-numeric);
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 1px 4px;
+  width: 55px;
+  min-height: 20px;
+}
+
+.tl-kf-field select {
+  width: 80px;
+}
+
+.tl-kf-delete {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-disabled);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tl-kf-delete:hover {
+  color: var(--color-error);
+}

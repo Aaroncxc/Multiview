@@ -1,0 +1,211 @@
+/* ============================================================
+   Toolbar Styles
+   Phase 1: + Dropdown, Snap, Undo/Redo, Save
+   Apple HIG: Translucent, contextually relevant controls
+   ============================================================ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--toolbar-height);
+  padding: 0 var(--space-3);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: var(--z-toolbar);
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.toolbar-left {
+  min-width: 180px;
+}
+
+.toolbar-center {
+  flex: 1;
+  justify-content: center;
+}
+
+.toolbar-right {
+  min-width: 180px;
+  justify-content: flex-end;
+}
+
+/* ── Project Name Input ── */
+
+.toolbar-project-input {
+  font: var(--text-toolbar);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  max-width: 140px;
+  transition: border-color var(--ease-micro), color var(--ease-micro);
+}
+
+.toolbar-project-input:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.toolbar-project-input:focus {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* ── Toolbar Button ── */
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  min-height: var(--min-target-size);
+  border-radius: var(--radius-sm);
+  font: var(--text-toolbar);
+  color: var(--text-secondary);
+  background: transparent;
+  transition: background var(--ease-micro), color var(--ease-micro);
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--bg-panel-hover);
+  color: var(--text-primary);
+}
+
+.toolbar-btn.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.toolbar-btn-accent {
+  color: var(--accent);
+}
+
+.toolbar-btn-accent:hover {
+  background: var(--accent-muted);
+  color: var(--accent-hover);
+}
+
+.toolbar-btn-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.toolbar-btn-label {
+  font: var(--text-toolbar);
+}
+
+/* ── Divider ── */
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-subtle);
+  margin: 0 var(--space-2);
+  flex-shrink: 0;
+}
+
+/* ── Hidden file input ── */
+
+.toolbar-file-input {
+  display: none;
+}
+
+/* ── Dropdown Wrapper ── */
+
+.toolbar-dropdown-wrapper {
+  position: relative;
+}
+
+.toolbar-dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dropdown);
+}
+
+.toolbar-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  padding: var(--space-1);
+  z-index: calc(var(--z-dropdown) + 1);
+  min-width: 140px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  animation: dropdown-in 150ms cubic-bezier(0.2, 0.8, 0.4, 1);
+}
+
+.toolbar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font: var(--text-body);
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--ease-micro);
+  white-space: nowrap;
+}
+
+.toolbar-dropdown-item:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.toolbar-dropdown-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.toolbar-dropdown-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 2px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolbar-dropdown {
+    animation: none;
+  }
+}

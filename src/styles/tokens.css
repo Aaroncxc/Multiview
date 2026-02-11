@@ -1,0 +1,105 @@
+/* ============================================================
+   Design Tokens — MultiView 3D Editor
+   Based on Apple HIG, adapted for dark-first 3D editor
+   ============================================================ */
+
+:root {
+  /* ── Color: Backgrounds ── */
+  --bg-app: #1a1a1a;
+  --bg-panel: #242424;
+  --bg-panel-hover: #2a2a2a;
+  --bg-surface: #2e2e2e;
+  --bg-input: #1e1e1e;
+  --bg-viewport: #1c1c1c;
+
+  /* ── Color: Borders ── */
+  --border-subtle: #333333;
+  --border-default: #444444;
+  --border-focus: var(--accent);
+
+  /* ── Color: Text ── */
+  --text-primary: #f0f0f0;
+  --text-secondary: #999999;
+  --text-disabled: #555555;
+  --text-inverse: #1a1a1a;
+
+  /* ── Color: Accent ── */
+  --accent: #4a9eff;
+  --accent-hover: #5aafff;
+  --accent-active: #3a8eef;
+  --accent-muted: rgba(74, 158, 255, 0.13);
+  --accent-text: #4a9eff;
+
+  /* ── Color: Semantic ── */
+  --color-success: #34c759;
+  --color-warning: #ffcc00;
+  --color-error: #ff453a;
+  --color-info: #64d2ff;
+
+  /* ── Color: 3D Gizmo ── */
+  --gizmo-x: #ff4d4d;
+  --gizmo-y: #4dff4d;
+  --gizmo-z: #4d88ff;
+
+  /* ── Typography ── */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", "Consolas", "Liberation Mono",
+    monospace;
+
+  --text-title: 600 16px / 1.25 var(--font-sans);
+  --text-body: 400 13px / 1.45 var(--font-sans);
+  --text-caption: 400 11px / 1.35 var(--font-sans);
+  --text-numeric: 500 12px / 1.2 var(--font-mono);
+  --text-toolbar: 500 12px / 1.2 var(--font-sans);
+
+  /* ── Spacing (4px grid) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ── Sizing ── */
+  --toolbar-height: 44px;
+  --outliner-width: 240px;
+  --inspector-width: 300px;
+  --timeline-height: 0px; /* collapsed by default */
+  --min-target-size: 32px;
+
+  /* ── Border Radius ── */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ── Shadows ── */
+  --shadow-panel: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* ── Motion ── */
+  --ease-micro: 150ms cubic-bezier(0.2, 0.8, 0.4, 1);
+  --ease-standard: 250ms cubic-bezier(0.2, 0.8, 0.4, 1);
+  --ease-dramatic: 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Z-Index ── */
+  --z-viewport: 0;
+  --z-panel: 10;
+  --z-toolbar: 20;
+  --z-dropdown: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ease-micro: 0ms;
+    --ease-standard: 0ms;
+    --ease-dramatic: 0ms;
+    --ease-spring: 0ms;
+  }
+}

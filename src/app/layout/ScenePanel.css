@@ -1,0 +1,146 @@
+/* ============================================================
+   Scene Panel — Global scene settings
+   ============================================================ */
+
+.scene-panel {
+  padding-bottom: var(--space-4);
+}
+
+.scene-section {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.scene-section-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.scene-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-1);
+}
+
+.scene-subsection {
+  margin-bottom: var(--space-2);
+}
+
+.scene-subsection-label {
+  font: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+/* ── Toggles ── */
+
+.scene-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.scene-toggle input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.scene-toggle-row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* ── Light Buttons ── */
+
+.scene-light-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+
+.scene-light-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: var(--text-caption);
+  color: var(--text-primary);
+  transition: border-color var(--ease-micro), background var(--ease-micro);
+}
+
+.scene-light-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+/* ── Camera Grid ── */
+
+.scene-camera-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+
+.scene-camera-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: var(--text-caption);
+  color: var(--text-secondary);
+  transition: border-color var(--ease-micro), background var(--ease-micro);
+}
+
+.scene-camera-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+/* ── HDRI Buttons ── */
+
+.scene-hdri-btn {
+  width: 100%;
+  padding: var(--space-2);
+  font: var(--text-body);
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--ease-micro);
+  margin-bottom: var(--space-1);
+}
+
+.scene-hdri-btn:hover {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+.scene-hdri-clear {
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border-color: var(--border-subtle);
+}
+
+.scene-hdri-clear:hover {
+  background: var(--bg-panel-hover);
+  color: var(--text-primary);
+}

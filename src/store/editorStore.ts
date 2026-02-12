@@ -24,6 +24,10 @@ import {
 import { commandStack } from "../core/commands/commandStack";
 import { autoSave } from "../core/io/projectStorage";
 import type { GizmoMode } from "../core/engine/threeBackend";
+import {
+  DEFAULT_VIEWER_EXPORT_OPTIONS,
+  type ViewerExportOptions,
+} from "../core/io/viewerExportOptions";
 
 // ── Editor State Types ──
 
@@ -115,8 +119,8 @@ export interface EditorState {
   triggerAutoSave: () => void;
 
   // Viewer Export options (for portfolio publish)
-  viewerExportOptions: { autospin?: number; minDistance?: number; maxDistance?: number };
-  setViewerExportOptions: (opts: Partial<{ autospin: number; minDistance: number; maxDistance: number }>) => void;
+  viewerExportOptions: ViewerExportOptions;
+  setViewerExportOptions: (opts: Partial<ViewerExportOptions>) => void;
 }
 
 // Autosave debounce
@@ -139,7 +143,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   canRedo: false,
   undoLabel: null,
   redoLabel: null,
-  viewerExportOptions: {},
+  viewerExportOptions: { ...DEFAULT_VIEWER_EXPORT_OPTIONS },
   setViewerExportOptions: (opts) =>
     set((s) => ({
       viewerExportOptions: { ...s.viewerExportOptions, ...opts },

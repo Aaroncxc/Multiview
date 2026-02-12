@@ -14,6 +14,8 @@ import { showToast } from "../../ui/Toast";
 import { saveProject, importFromJSON, loadAutoSave } from "../../core/io/projectStorage";
 import { rebuildSceneFromDocument } from "../../core/io/sceneRebuilder";
 import type { Transform, SceneNode, NodeId } from "../../core/document/types";
+import { mergeViewerExportOptions } from "../../core/io/viewerExportOptions";
+import { exportViewerHTML } from "../../core/io/viewerExport";
 import "./Viewport.css";
 
 // Singleton backend instance
@@ -43,10 +45,88 @@ export const Viewport: React.FC = () => {
   const snapEnabled = useEditorStore((s) => s.snapEnabled);
   const snapValue = useEditorStore((s) => s.snapValue);
   const document = useEditorStore((s) => s.document);
+  const isTransparentViewport =
+    document.sceneSettings.backgroundType === "transparent";
+  const [viewerPreviewUrl, setViewerPreviewUrl] = useState<string | null>(null);
+  const viewerPreviewUrlRef = useRef<string | null>(null);
+
+  const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    a.style.display = "none";
+    window.document.body.appendChild(a);
+    a.click();
+    window.document.body.removeChild(a);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
+  const revokeViewerPreviewUrl = useCallback(() => {
+    if (!viewerPreviewUrlRef.current) return;
+    URL.revokeObjectURL(viewerPreviewUrlRef.current);
+    viewerPreviewUrlRef.current = null;
+  }, []);
+
+  const buildViewerExportPayload = useCallback(() => {
+    if (!backend) {
+      showToast("Viewer backend is not ready yet", "warning");
+      return null;
+    }
+
+    try {
+      const state = useEditorStore.getState();
+      const doc = state.document;
+      const opts = mergeViewerExportOptions(state.viewerExportOptions);
+
+      // Embed a poster frame for the exported loading screen (optional)
+      delete opts.previewImageDataUrl;
+      if (opts.includePreviewImage !== false) {
+        try {
+          opts.previewImageDataUrl = backend.captureScreenshot("image/jpeg", 0.82);
+        } catch (err) {
+          console.warn("Failed to capture preview screenshot:", err);
+          showToast("Preview image could not be embedded", "warning");
+        }
+      }
+
+      return {
+        html: exportViewerHTML(doc, backend, opts),
+        filename: `${doc.projectName.replace(/\s+/g, "_")}_viewer.html`,
+      };
+    } catch (err) {
+      console.error("Viewer export failed:", err);
+      showToast("Viewer export failed", "error");
+      return null;
+    }
+  }, []);
+
+  const openViewerPreview = useCallback(() => {
+    const payload = buildViewerExportPayload();
+    if (!payload) return;
+
+    const blob = new Blob([payload.html], { type: "text/html" });
+    const nextUrl = URL.createObjectURL(blob);
+    const previousUrl = viewerPreviewUrlRef.current;
+
+    viewerPreviewUrlRef.current = nextUrl;
+    setViewerPreviewUrl(nextUrl);
+
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+    }
+  }, [buildViewerExportPayload]);
+
+  const closeViewerPreview = useCallback(() => {
+    setViewerPreviewUrl(null);
+    revokeViewerPreviewUrl();
+  }, [revokeViewerPreviewUrl]);
 
   // ── Initialize Three.js ──
   useEffect(() => {
-    if (!canvasRef.current || initializedRef.current) return;
+    if (!canvasRef.current) return;
+    if (initializedRef.current && backend) return;
     initializedRef.current = true;
 
     backend = new ThreeBackend();
@@ -79,6 +159,7 @@ export const Viewport: React.FC = () => {
       useEditorStore.getState().setDocument(docForRebuild);
       rebuildSceneFromDocument(backend, docForRebuild).then((updatedDoc) => {
         useEditorStore.getState().updateDocument(updatedDoc);
+        backend?.applySceneSettings(updatedDoc.sceneSettings);
       });
     });
 
@@ -367,6 +448,7 @@ export const Viewport: React.FC = () => {
           setDocument(docForRebuild);
           const updatedDoc = await rebuildSceneFromDocument(backend, docForRebuild);
           updateDocument(updatedDoc);
+          backend.applySceneSettings(updatedDoc.sceneSettings);
 
           showToast(`Loaded project: ${doc.projectName}`, "success");
           return;
@@ -735,12 +817,10 @@ export const Viewport: React.FC = () => {
       try {
         const buffer = await backend.exportToGLB();
         const blob = new Blob([buffer], { type: "model/gltf-binary" });
-        const url = URL.createObjectURL(blob);
-        const a = window.document.createElement("a");
-        a.href = url;
-        a.download = `${useEditorStore.getState().document.projectName.replace(/\s+/g, "_")}.glb`;
-        a.click();
-        URL.revokeObjectURL(url);
+        triggerBlobDownload(
+          blob,
+          `${useEditorStore.getState().document.projectName.replace(/\s+/g, "_")}.glb`
+        );
         showToast("Exported as GLB", "success");
       } catch (err) {
         console.error("GLB export failed:", err);
@@ -749,30 +829,55 @@ export const Viewport: React.FC = () => {
     };
     window.addEventListener("editor:export-glb", handleExportGLB);
     return () => window.removeEventListener("editor:export-glb", handleExportGLB);
-  }, []);
+  }, [triggerBlobDownload]);
 
   // ── Export Viewer HTML ──
   useEffect(() => {
-    const handleExportViewer = async () => {
-      if (!backend) return;
-      const { exportViewerHTML } = await import("../../core/io/viewerExport");
-      const state = useEditorStore.getState();
-      const doc = state.document;
-      const opts = state.viewerExportOptions;
-      const html = exportViewerHTML(doc, backend, opts);
-      const blob = new Blob([html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const a = window.document.createElement("a");
-      a.href = url;
-      a.download = `${doc.projectName.replace(/\s+/g, "_")}_viewer.html`;
-      a.click();
-      URL.revokeObjectURL(url);
+    const handleExportViewer = () => {
+      const payload = buildViewerExportPayload();
+      if (!payload) return;
+
+      const blob = new Blob([payload.html], { type: "text/html" });
+      triggerBlobDownload(blob, payload.filename);
       showToast("Viewer exported!", "success");
     };
     window.addEventListener("editor:export-viewer", handleExportViewer);
     return () =>
       window.removeEventListener("editor:export-viewer", handleExportViewer);
-  }, []);
+  }, [buildViewerExportPayload, triggerBlobDownload]);
+
+  useEffect(() => {
+    const handleOpenPreview = () => {
+      openViewerPreview();
+    };
+    const handleClosePreview = () => {
+      closeViewerPreview();
+    };
+
+    window.addEventListener("editor:preview-viewer", handleOpenPreview);
+    window.addEventListener("editor:close-viewer-preview", handleClosePreview);
+    return () => {
+      window.removeEventListener("editor:preview-viewer", handleOpenPreview);
+      window.removeEventListener("editor:close-viewer-preview", handleClosePreview);
+    };
+  }, [closeViewerPreview, openViewerPreview]);
+
+  useEffect(() => {
+    if (!viewerPreviewUrl) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeViewerPreview();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [closeViewerPreview, viewerPreviewUrl]);
+
+  useEffect(() => {
+    return () => revokeViewerPreviewUrl();
+  }, [revokeViewerPreviewUrl]);
 
   // ── Add Camera Marker ──
   useEffect(() => {
@@ -933,6 +1038,12 @@ export const Viewport: React.FC = () => {
       window.removeEventListener("editor:apply-scene-settings", handleApplySettings);
   }, []);
 
+  // Keep viewport background mode in sync even if settings are updated from outside ScenePanel events.
+  useEffect(() => {
+    if (!backend) return;
+    backend.applySceneSettings(document.sceneSettings);
+  }, [document.sceneSettings.backgroundType, document.sceneSettings.backgroundColor]);
+
   // ── Handle HDRI events ──
   useEffect(() => {
     const handleLoadHDRI = async (e: Event) => {
@@ -1065,7 +1176,11 @@ export const Viewport: React.FC = () => {
   }, [showStats]);
 
   return (
-    <div className="viewport-container">
+    <div
+      className={`viewport-container${
+        isTransparentViewport ? " viewport-transparent" : ""
+      }`}
+    >
       <canvas
         ref={canvasRef}
         className="viewport-canvas"
@@ -1114,6 +1229,44 @@ export const Viewport: React.FC = () => {
             />
             <div className="viewport-intro-subtitle">
               Import a 3D model or add a primitive to begin
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewerPreviewUrl && (
+        <div className="viewport-viewer-preview">
+          <div className="viewport-viewer-preview-shell">
+            <div className="viewport-viewer-preview-header">
+              <div className="viewport-viewer-preview-text">
+                <strong>Viewer Export Preview</strong>
+                <span>
+                  Renders the exact exported HTML inside an iframe so you can verify
+                  materials, lights, and interactions.
+                </span>
+              </div>
+              <div className="viewport-viewer-preview-actions">
+                <button
+                  className="viewport-viewer-preview-btn"
+                  onClick={openViewerPreview}
+                >
+                  Refresh
+                </button>
+                <button
+                  className="viewport-viewer-preview-btn viewport-viewer-preview-btn-close"
+                  onClick={closeViewerPreview}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="viewport-viewer-preview-frame-wrap">
+              <iframe
+                title="Viewer export preview"
+                src={viewerPreviewUrl}
+                className="viewport-viewer-preview-frame"
+                loading="eager"
+              />
             </div>
           </div>
         </div>

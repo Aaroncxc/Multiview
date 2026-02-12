@@ -10,7 +10,6 @@ import type { ToolMode } from "../../store/editorStore";
 import { exportAsJSON } from "../../core/io/projectStorage";
 import { showToast } from "../../ui/Toast";
 import { saveProject } from "../../core/io/projectStorage";
-import { exportViewerHTML } from "../../core/io/viewerExport";
 import "./Toolbar.css";
 
 // ── Primitives config ──
@@ -110,6 +109,10 @@ export const Toolbar: React.FC = () => {
   const handleExportViewer = () => {
     // Dispatch to viewport to get the backend reference, then export
     window.dispatchEvent(new CustomEvent("editor:export-viewer"));
+  };
+
+  const handlePreviewViewer = () => {
+    window.dispatchEvent(new CustomEvent("editor:preview-viewer"));
   };
 
   const handleUndo = () => {
@@ -275,6 +278,14 @@ export const Toolbar: React.FC = () => {
           title="Export as JSON"
         >
           <span className="toolbar-btn-icon">📤</span>
+        </button>
+
+        <button
+          className="toolbar-btn"
+          onClick={handlePreviewViewer}
+          title="Preview exported viewer inside the app"
+        >
+          <span className="toolbar-btn-label">Preview</span>
         </button>
 
         <button

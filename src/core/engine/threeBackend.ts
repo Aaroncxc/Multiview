@@ -138,6 +138,8 @@ export class ThreeBackend {
   // ── HDRI / EXR Loaders ──
   private rgbeLoader = new RGBELoader();
   private exrLoader = new EXRLoader();
+  private lastAppliedBackgroundType: SceneSettings["backgroundType"] | null = null;
+  private lastAppliedBackgroundColor: string | null = null;
 
   // ============================================================
   // Init
@@ -151,6 +153,7 @@ export class ThreeBackend {
       canvas,
       antialias: true,
       alpha: true,
+      preserveDrawingBuffer: true,
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -311,8 +314,11 @@ export class ThreeBackend {
       this.updateSelectionHelper();
 
       if (this.usePostProcessing) {
+        this.renderer.autoClear = false;
         this.composer.render(dt);
       } else {
+        if (!this.renderer.autoClear) this.renderer.autoClear = true;
+        this.renderer.clear(true, true, true);
         this.renderer.render(this.scene, this.camera);
       }
     };
@@ -1807,11 +1813,23 @@ export class ThreeBackend {
   // ============================================================
 
   applySceneSettings(settings: SceneSettings) {
-    // Background
-    if (settings.backgroundType === "transparent") {
-      this.renderer.setClearColor(0x000000, 0);
-    } else {
-      this.renderer.setClearColor(settings.backgroundColor, 1);
+    // Only touch background buffers when settings changed.
+    // This keeps HDRI backgrounds visible while tuning unrelated scene settings.
+    const backgroundChanged =
+      settings.backgroundType !== this.lastAppliedBackgroundType ||
+      settings.backgroundColor !== this.lastAppliedBackgroundColor;
+    if (backgroundChanged) {
+      if (settings.backgroundType === "transparent") {
+        this.scene.background = null;
+        this.renderer.setClearColor(0x000000, 0);
+      } else {
+        // Use renderer clear color for viewport background color mode.
+        // (If HDRI was active before, switching to color should explicitly disable it as backdrop.)
+        this.scene.background = null;
+        this.renderer.setClearColor(settings.backgroundColor, 1);
+      }
+      this.lastAppliedBackgroundType = settings.backgroundType;
+      this.lastAppliedBackgroundColor = settings.backgroundColor;
     }
 
     // Ambient light (editor built-in)
@@ -1890,6 +1908,15 @@ export class ThreeBackend {
 
   /** Capture current viewport as PNG/JPEG data URL */
   captureScreenshot(format: "image/png" | "image/jpeg" = "image/png", quality?: number): string {
+    // Render one fresh frame before capture to avoid stale/black buffers on some GPUs/drivers.
+    if (this.usePostProcessing) {
+      this.renderer.autoClear = false;
+      this.composer.render(0);
+    } else {
+      if (!this.renderer.autoClear) this.renderer.autoClear = true;
+      this.renderer.clear(true, true, true);
+      this.renderer.render(this.scene, this.camera);
+    }
     return this.canvas.toDataURL(format, quality);
   }
 

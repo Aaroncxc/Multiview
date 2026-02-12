@@ -1,13 +1,19 @@
-// ============================================================
-// Viewer Export — Generates a standalone HTML viewer file
+﻿// ============================================================
+// Viewer Export - Generates a standalone HTML viewer file
 // Contains: Three.js (CDN), scene data, interaction runtime,
 //           camera buttons, orbit-only controls, info panel.
 // ============================================================
 
 import type { SceneDocument, SceneNode } from "../document/types";
 import type { ThreeBackend } from "../engine/threeBackend";
+import {
+  mergeViewerExportOptions,
+  type ViewerExportOptions,
+} from "./viewerExportOptions";
 
-// ── Collected per-node data for the viewer ──
+export type { ViewerExportOptions } from "./viewerExportOptions";
+
+// -- Collected per-node data for the viewer --
 
 interface ViewerNodeData {
   id: string;
@@ -40,17 +46,15 @@ interface ViewerNodeData {
   interactions?: SceneNode["interactions"];
 }
 
-export interface ViewerExportOptions {
-  autospin?: number;      // 0=off, >0 speed, <0 reverse (rad/s)
-  minDistance?: number;  // orbit min zoom
-  maxDistance?: number;  // orbit max zoom
-}
-
 interface ViewerPackData {
   projectName: string;
   sceneSettings: SceneDocument["sceneSettings"];
   nodes: ViewerNodeData[];
-  cameras: { label: string; position: [number, number, number]; rotation: [number, number, number] }[];
+  cameras: {
+    label: string;
+    position: [number, number, number];
+    rotation: [number, number, number];
+  }[];
   viewerOptions?: ViewerExportOptions;
 }
 
@@ -62,7 +66,6 @@ export function exportViewerHTML(
   backend: ThreeBackend,
   options?: ViewerExportOptions
 ): string {
-  // Collect nodes
   const nodes: ViewerNodeData[] = [];
   const cameras: ViewerPackData["cameras"] = [];
 
@@ -82,15 +85,12 @@ export function exportViewerHTML(
       visible: node.visible,
     };
 
-    // Mesh data
     if (node.type === "mesh" && node.mesh) {
       vn.geometryType = node.mesh.geometryType;
-      // Capture current material from backend
       if (node.runtimeObjectUuid) {
         const matProps = backend.getMaterialProps(node.runtimeObjectUuid);
         if (matProps) vn.material = matProps;
       }
-      // Text3D
       if (node.mesh.geometryType === "text3d") {
         vn.text3d = {
           content: node.mesh.text3dContent ?? "Hello",
@@ -101,12 +101,10 @@ export function exportViewerHTML(
       }
     }
 
-    // Light data
     if (node.type === "light" && node.light) {
       vn.light = { ...node.light };
     }
 
-    // Camera marker
     if (node.type === "camera") {
       vn.camera = {
         label: node.cameraData?.label ?? node.name,
@@ -119,8 +117,10 @@ export function exportViewerHTML(
       });
     }
 
-    // Interactions
-    if (node.interactions && (node.interactions.states.length > 0 || node.interactions.events.length > 0)) {
+    if (
+      node.interactions &&
+      (node.interactions.states.length > 0 || node.interactions.events.length > 0)
+    ) {
       vn.interactions = node.interactions;
     }
 
@@ -138,40 +138,172 @@ export function exportViewerHTML(
   return generateHTML(pack);
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeInlineCSS(value: string): string {
+  return value.replace(/<\/style/gi, "<\\/style");
+}
+
+function normalizeAspectRatio(value: string): string {
+  const trimmed = value.trim();
+  const colon = /^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/;
+  const slash = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/;
+
+  const colonMatch = trimmed.match(colon);
+  if (colonMatch) return `${colonMatch[1]} / ${colonMatch[2]}`;
+
+  const slashMatch = trimmed.match(slash);
+  if (slashMatch) return `${slashMatch[1]} / ${slashMatch[2]}`;
+
+  return "16 / 9";
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.trim().replace("#", "");
+  if (!/^([0-9a-fA-F]{6})$/.test(clean)) {
+    return `rgba(77,166,255,${alpha})`;
+  }
+  const r = Number.parseInt(clean.slice(0, 2), 16);
+  const g = Number.parseInt(clean.slice(2, 4), 16);
+  const b = Number.parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function generateHTML(pack: ViewerPackData): string {
-  const dataJSON = JSON.stringify(pack);
+  const vo = mergeViewerExportOptions(pack.viewerOptions);
+  const displayTitle = vo.title?.trim() ? vo.title.trim() : pack.projectName;
+  const safeTitle = escapeHtml(displayTitle);
+  const safeDescription = escapeHtml(vo.description?.trim() ?? "");
+  const metaDescription =
+    safeDescription.length > 0
+      ? safeDescription
+      : `${safeTitle} interactive 3D viewer`;
+
   const bgColor = pack.sceneSettings.backgroundColor ?? "#1c1c1c";
+  const aspectRatio = normalizeAspectRatio(vo.aspectRatio ?? "16 / 9");
+  const loadingTitle = escapeHtml(vo.loadingTitle ?? "Loading Viewer");
+  const loadingSubtitle = escapeHtml(vo.loadingSubtitle ?? "Preparing scene...");
+  const loadingBackground = vo.loadingBackground ?? "#101317";
+  const loadingTextColor = vo.loadingTextColor ?? "#ffffff";
+  const loadingAccentColor = vo.loadingAccentColor ?? "#4da6ff";
+  const accentSoft = hexToRgba(loadingAccentColor, 0.24);
+  const bodyThemeClass = vo.theme === "light" ? "mv-theme-light" : "mv-theme-dark";
+  const bodyResponsiveClass = vo.responsiveEmbed ? "mv-embed-responsive" : "";
+  const bodyClass = `${bodyThemeClass} ${bodyResponsiveClass}`.trim();
+  const customCss = sanitizeInlineCSS(vo.customCss?.trim() ?? "");
+  const previewImage = vo.previewImageDataUrl ?? "";
+
+  const safePack: ViewerPackData = {
+    ...pack,
+    viewerOptions: {
+      ...vo,
+      // custom CSS is injected as dedicated style tag, not read from runtime pack
+      customCss: undefined,
+      // preview poster is injected into markup and not needed in runtime data
+      previewImageDataUrl: undefined,
+    },
+  };
+
+  const dataJSON = JSON.stringify(safePack).replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${pack.projectName} — MultiView Viewer</title>
+<meta name="description" content="${metaDescription}" />
+<title>${safeTitle} - MultiView Viewer</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:${bgColor};font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
-#viewer{width:100%;height:100%;position:relative}
+:root{
+  --mv-bg:${bgColor};
+  --mv-panel-bg:rgba(30,30,30,.85);
+  --mv-panel-border:rgba(255,255,255,.18);
+  --mv-text:#f7f7f7;
+  --mv-text-muted:#cfcfcf;
+  --mv-accent:${loadingAccentColor};
+  --mv-accent-soft:${accentSoft};
+  --mv-aspect-ratio:${aspectRatio};
+  --mv-loading-bg:${loadingBackground};
+  --mv-loading-text:${loadingTextColor};
+  --mv-loading-accent:${loadingAccentColor};
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--mv-bg);color:var(--mv-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+body.mv-theme-light{
+  --mv-panel-bg:rgba(255,255,255,.88);
+  --mv-panel-border:rgba(0,0,0,.15);
+  --mv-text:#1a1a1a;
+  --mv-text-muted:#4d4d4d;
+  --mv-accent:#267cff;
+  --mv-accent-soft:rgba(38,124,255,.18);
+}
+body.mv-embed-responsive{
+  display:grid;
+  place-items:center;
+  padding:14px;
+  background:radial-gradient(120% 120% at 50% 30%, rgba(255,255,255,.05) 0%, transparent 60%),var(--mv-bg);
+}
+#viewer{width:100%;height:100%;position:relative;background:var(--mv-bg)}
+body.mv-embed-responsive #viewer{
+  width:min(100%,calc(100vh * var(--mv-aspect-ratio)));
+  height:auto;
+  max-height:100vh;
+  aspect-ratio:var(--mv-aspect-ratio);
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);
+}
 canvas{display:block;width:100%;height:100%}
 .mv-ui{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10}
-.mv-btn{padding:8px 16px;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:rgba(30,30,30,.85);color:#fff;font-size:13px;cursor:pointer;transition:background .2s,border-color .2s;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-.mv-btn:hover{background:rgba(60,60,60,.9);border-color:rgba(255,255,255,.35)}
-.mv-btn.active{background:rgba(77,166,255,.25);border-color:rgba(77,166,255,.6)}
-.mv-info{position:absolute;top:16px;right:16px;background:rgba(30,30,30,.85);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:16px;color:#ccc;font-size:12px;min-width:180px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:10}
-.mv-info h3{color:#fff;font-size:14px;margin-bottom:8px;font-weight:600}
+.mv-btn{padding:8px 16px;border:1px solid var(--mv-panel-border);border-radius:8px;background:var(--mv-panel-bg);color:var(--mv-text);font-size:13px;cursor:pointer;transition:background .2s,border-color .2s,transform .2s;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.mv-btn:hover{border-color:var(--mv-accent);transform:translateY(-1px)}
+.mv-btn.active{background:var(--mv-accent-soft);border-color:var(--mv-accent)}
+.mv-info{position:absolute;top:16px;right:16px;background:var(--mv-panel-bg);border:1px solid var(--mv-panel-border);border-radius:12px;padding:16px;color:var(--mv-text-muted);font-size:12px;min-width:180px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:10}
+.mv-info h3{color:var(--mv-text);font-size:14px;margin-bottom:8px;font-weight:600}
 .mv-info-row{display:flex;justify-content:space-between;margin-bottom:4px}
-.mv-info-row span:last-child{color:#fff}
-.mv-title{position:absolute;top:16px;left:16px;color:#fff;font-size:16px;font-weight:600;z-index:10;opacity:.8}
+.mv-info-row span:last-child{color:var(--mv-text)}
+.mv-title{position:absolute;top:16px;left:16px;color:var(--mv-text);font-size:16px;font-weight:600;z-index:10;opacity:.9}
+.mv-description{position:absolute;top:42px;left:16px;max-width:min(40vw,420px);font-size:12px;line-height:1.45;color:var(--mv-text-muted);z-index:10;background:var(--mv-panel-bg);border:1px solid var(--mv-panel-border);border-radius:10px;padding:8px 10px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .mv-cam-btns{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10}
+.mv-loading{position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;background:var(--mv-loading-bg);transition:opacity .35s ease,visibility .35s ease}
+.mv-loading.is-hidden{opacity:0;visibility:hidden;pointer-events:none}
+.mv-loading-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(2px);transform:scale(1.02)}
+.mv-loading-backdrop{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.18),rgba(0,0,0,.54))}
+.mv-loading-content{position:relative;z-index:1;min-width:min(90vw,360px);text-align:center;padding:22px;border-radius:14px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.2);color:var(--mv-loading-text);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.mv-loading-spinner{width:30px;height:30px;border:2px solid rgba(255,255,255,.24);border-top-color:var(--mv-loading-accent);border-radius:50%;margin:0 auto 10px;animation:mv-spin .8s linear infinite}
+.mv-loading-title{font-size:15px;font-weight:600;margin-bottom:4px}
+.mv-loading-subtitle{font-size:12px;opacity:.9}
+.mv-loading-progress{margin-top:12px;height:4px;border-radius:999px;background:rgba(255,255,255,.2);overflow:hidden}
+.mv-loading-progress span{display:block;height:100%;width:0;background:var(--mv-loading-accent);transition:width .2s ease}
+@keyframes mv-spin{to{transform:rotate(360deg)}}
 </style>
+${customCss ? `<style id="mv-custom-css">\n${customCss}\n</style>` : ""}
 </head>
-<body>
+<body class="${bodyClass}">
 <div id="viewer">
   <canvas id="c"></canvas>
-  <div class="mv-title">${pack.projectName}</div>
+  <div class="mv-title">${safeTitle}</div>
+  ${safeDescription ? `<div class="mv-description">${safeDescription}</div>` : ""}
   <div class="mv-cam-btns" id="camBtns"></div>
   <div class="mv-ui" id="controls"></div>
   <div class="mv-info" id="infoPanel"><h3>Scene Info</h3><div id="infoContent"></div></div>
+  <div class="mv-loading${vo.loadingEnabled === false ? " is-hidden" : ""}" id="mvLoading">
+    ${previewImage ? `<img class="mv-loading-preview" src="${previewImage}" alt="Preview" />` : ""}
+    <div class="mv-loading-backdrop"></div>
+    <div class="mv-loading-content">
+      <div class="mv-loading-spinner"></div>
+      <div class="mv-loading-title">${loadingTitle}</div>
+      <div class="mv-loading-subtitle" id="mvLoadingSubtitle">${loadingSubtitle}</div>
+      <div class="mv-loading-progress"><span id="mvLoadingProgress"></span></div>
+    </div>
+  </div>
 </div>
 
 <script type="importmap">
@@ -183,13 +315,49 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FontLoader} from 'three/addons/loaders/FontLoader.js';
 import {TextGeometry} from 'three/addons/geometries/TextGeometry.js';
 
-// ── Scene Data ──
+// -- Scene Data --
 const PACK = ${dataJSON};
 
-// ── Easing ──
+// -- Easing --
 const easings={linear:t=>t,easeIn:t=>t*t*t,easeOut:t=>1-(1-t)**3,easeInOut:t=>t<.5?4*t*t*t:1-(-2*t+2)**3/2,spring:t=>{const c=(2*Math.PI)/3;return t===0?0:t===1?1:2**(-10*t)*Math.sin((t*10-.75)*c)+1},bounce:t=>{const n=7.5625,d=2.75;if(t<1/d)return n*t*t;if(t<2/d)return n*(t-=1.5/d)*t+.75;if(t<2.5/d)return n*(t-=2.25/d)*t+.9375;return n*(t-=2.625/d)*t+.984375}};
 
-// ── Setup ──
+const vo=PACK.viewerOptions||{};
+const viewerEl=document.getElementById('viewer');
+const infoPanel=document.getElementById('infoPanel');
+if(vo.showInfoPanel===false&&infoPanel)infoPanel.style.display='none';
+
+const loadingEl=document.getElementById('mvLoading');
+const loadingProgressEl=document.getElementById('mvLoadingProgress');
+const loadingSubtitleEl=document.getElementById('mvLoadingSubtitle');
+
+function setLoadingProgress(progress,label){
+  if(!loadingProgressEl)return;
+  const clamped=Math.max(0,Math.min(progress,1));
+  loadingProgressEl.style.width=(clamped*100).toFixed(1)+'%';
+  if(label&&loadingSubtitleEl)loadingSubtitleEl.textContent=label;
+}
+
+function hideLoading(){
+  if(!loadingEl)return;
+  loadingEl.classList.add('is-hidden');
+  setTimeout(()=>loadingEl.remove(),360);
+}
+
+if(vo.loadingEnabled===false&&loadingEl){
+  loadingEl.remove();
+}
+
+function getViewportSize(){
+  const rect=(viewerEl||document.body).getBoundingClientRect();
+  return {
+    w:Math.max(1,Math.floor(rect.width||window.innerWidth||1)),
+    h:Math.max(1,Math.floor(rect.height||window.innerHeight||1)),
+  };
+}
+
+const initialSize=getViewportSize();
+
+// -- Setup --
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
@@ -197,16 +365,18 @@ renderer.shadowMap.enabled=true;
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=PACK.sceneSettings?.postProcessing?.toneMappingExposure??1;
+renderer.setSize(initialSize.w,initialSize.h,false);
+
 const scene=new THREE.Scene();
 const ss=PACK.sceneSettings;
 if(ss?.backgroundType==='color')scene.background=new THREE.Color(ss.backgroundColor);
-const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,2000);
+
+const camera=new THREE.PerspectiveCamera(45,initialSize.w/initialSize.h,.1,2000);
 camera.position.set(3,2.5,4);
 const orbit=new OrbitControls(camera,canvas);
 orbit.enableDamping=true;
 orbit.dampingFactor=.08;
 orbit.enablePan=false;
-const vo=PACK.viewerOptions||{};
 if(vo.minDistance!=null)orbit.minDistance=vo.minDistance;
 if(vo.maxDistance!=null)orbit.maxDistance=vo.maxDistance;
 
@@ -221,7 +391,7 @@ keyLight.shadow.mapSize.set(2048,2048);scene.add(keyLight);
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.ShadowMaterial({opacity:.15}));
 ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
 
-// ── Build Scene ──
+// -- Build Scene --
 const objectById=new Map();
 let totalTriangles=0;
 let totalVertices=0;
@@ -261,6 +431,9 @@ function applyMaterial(mat,props){
 
 async function buildScene(){
   const fontLoader=new FontLoader();
+  const total=Math.max(PACK.nodes.length,1);
+  let processed=0;
+
   for(const n of PACK.nodes){
     if(n.type==='mesh'&&n.geometryType){
       let geometry;
@@ -290,14 +463,14 @@ async function buildScene(){
       else if(geometry.attributes.position)totalTriangles+=geometry.attributes.position.count/3;
       if(geometry.attributes.position)totalVertices+=geometry.attributes.position.count;
     }
+
     if(n.type==='light'&&n.light){
-      let light;
+      let light=null;
       switch(n.light.kind){
         case'directional':light=new THREE.DirectionalLight(n.light.color,n.light.intensity);light.castShadow=n.light.castShadow;break;
         case'point':light=new THREE.PointLight(n.light.color,n.light.intensity,n.light.distance??0,n.light.decay??2);light.castShadow=n.light.castShadow;break;
         case'spot':light=new THREE.SpotLight(n.light.color,n.light.intensity,n.light.distance??0,n.light.angle??Math.PI/6,n.light.penumbra??0,n.light.decay??2);light.castShadow=n.light.castShadow;break;
         case'ambient':light=new THREE.AmbientLight(n.light.color,n.light.intensity);break;
-        default:continue;
       }
       if(light){
         light.position.fromArray(n.transform.position);
@@ -305,10 +478,13 @@ async function buildScene(){
         objectById.set(n.id,light);
       }
     }
+
+    processed++;
+    setLoadingProgress(processed/total,'Loading '+(n.name||'object'));
   }
 }
 
-// ── Interaction Runtime (minimal) ──
+// -- Interaction Runtime (minimal) --
 const transitions=[];
 const pendingDelays=new Map();
 const activeStates=new Map();
@@ -370,14 +546,13 @@ function fireEvent(nodeId,trigger){
   }
 }
 
-// Fire "start" events
 function fireStartEvents(){
   for(const n of PACK.nodes){
     if(n.interactions)fireEvent(n.id,'start');
   }
 }
 
-// ── Raycaster for hover/click ──
+// -- Raycaster for hover/click --
 const raycaster=new THREE.Raycaster();
 const pointer=new THREE.Vector2();
 let hoveredId=null;
@@ -385,10 +560,10 @@ let hoveredId=null;
 function pickNode(cx,cy){
   const rect=canvas.getBoundingClientRect();
   pointer.x=((cx-rect.left)/rect.width)*2-1;
-  pointer.y=-((cy-rect.top)/rect.height)*2-1;
+  pointer.y=-((cy-rect.top)/rect.height)*2+1;
   raycaster.setFromCamera(pointer,camera);
   const meshes=[];
-  for(const[id,obj]of objectById){if(obj.isMesh)meshes.push(obj)}
+  for(const[,obj]of objectById){if(obj.isMesh)meshes.push(obj)}
   const hits=raycaster.intersectObjects(meshes,true);
   if(hits.length===0)return null;
   let target=hits[0].object;
@@ -413,7 +588,7 @@ canvas.addEventListener('mousemove',e=>{
   }
 });
 
-// ── Camera fly ──
+// -- Camera fly --
 let camTrans=null;
 function flyTo(pos,rot,dur=1.2){
   const toPos=new THREE.Vector3(...pos);
@@ -424,16 +599,16 @@ function flyTo(pos,rot,dur=1.2){
   camTrans={fromPos:camera.position.clone(),toPos,fromTarget:orbit.target.clone(),toTarget,duration:dur,elapsed:0};
 }
 
-// ── Camera Buttons ──
+// -- Camera Buttons --
 const camContainer=document.getElementById('camBtns');
-PACK.cameras.forEach((c,i)=>{
+PACK.cameras.forEach((c)=>{
   const btn=document.createElement('button');
   btn.className='mv-btn';btn.textContent=c.label;
   btn.addEventListener('click',()=>flyTo(c.position,c.rotation));
   camContainer.appendChild(btn);
 });
 
-// ── Bottom controls ──
+// -- Bottom controls --
 const ctrlContainer=document.getElementById('controls');
 let wireframeOn=false;
 const wireBtn=document.createElement('button');wireBtn.className='mv-btn';wireBtn.textContent='Wireframe';
@@ -444,7 +619,7 @@ const resetBtn=document.createElement('button');resetBtn.className='mv-btn';rese
 resetBtn.addEventListener('click',()=>{camera.position.set(3,2.5,4);orbit.target.set(0,0,0);camTrans=null});
 ctrlContainer.appendChild(resetBtn);
 
-// ── Info Panel ──
+// -- Info Panel --
 await buildScene();
 const infoContent=document.getElementById('infoContent');
 infoContent.innerHTML=\`
@@ -455,13 +630,15 @@ infoContent.innerHTML=\`
   <div class="mv-info-row"><span>Vertices</span><span>\${Math.round(totalVertices).toLocaleString()}</span></div>
 \`;
 
-// ── Render Loop ──
+setLoadingProgress(1,'Ready');
+if(vo.loadingEnabled!==false)setTimeout(hideLoading,180);
+
+// -- Render Loop --
 const clock=new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),.1);
 
-  // Camera transition
   if(camTrans){
     camTrans.elapsed+=dt;
     const p=Math.min(camTrans.elapsed/camTrans.duration,1);
@@ -471,14 +648,12 @@ function animate(){
     if(p>=1)camTrans=null;
   }
 
-  // Autospin (turntable)
   if(vo.autospin){
     const v=camera.position.clone().sub(orbit.target);
     v.applyAxisAngle(new THREE.Vector3(0,1,0),vo.autospin*dt);
     camera.position.copy(orbit.target).add(v);
   }
 
-  // Transitions
   for(let i=transitions.length-1;i>=0;i--){
     const tr=transitions[i];
     tr.elapsed+=dt*1000;
@@ -494,12 +669,18 @@ function animate(){
 }
 
 function resize(){
-  const w=innerWidth,h=innerHeight;
-  renderer.setSize(w,h);
-  camera.aspect=w/h;
+  const size=getViewportSize();
+  renderer.setSize(size.w,size.h,false);
+  camera.aspect=size.w/size.h;
   camera.updateProjectionMatrix();
 }
+
 window.addEventListener('resize',resize);
+if(window.ResizeObserver&&viewerEl){
+  const ro=new ResizeObserver(()=>resize());
+  ro.observe(viewerEl);
+}
+
 resize();
 fireStartEvents();
 animate();

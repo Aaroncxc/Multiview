@@ -39,23 +39,25 @@
   gap: 4px;
   padding: 3px 10px;
   font: var(--text-caption);
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   white-space: nowrap;
   transition: background var(--ease-micro);
 }
 
 .tl-clip-tab.active {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-active);
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 
 .tl-clip-tab:hover {
-  background: var(--bg-panel-hover);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
 }
 
 .tl-clip-close {
@@ -75,10 +77,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-input);
-  border: 1px dashed var(--border-subtle);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   font-size: 14px;
 }
@@ -103,23 +106,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   font-size: 12px;
   transition: background var(--ease-micro);
 }
 
 .tl-transport-btn:hover {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--accent-border-strong);
 }
 
 .tl-transport-active {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-active);
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 
@@ -137,10 +142,11 @@
 .tl-duration-input {
   width: 48px;
   font: var(--text-numeric);
-  color: var(--text-primary);
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
+  color: var(--control-text);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   padding: 2px 4px;
   text-align: center;
   -moz-appearance: textfield;
@@ -217,12 +223,19 @@
 .tl-add-track-select {
   font: var(--text-caption);
   font-size: 10px;
-  color: var(--accent);
-  background: var(--accent-muted);
-  border: none;
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   padding: 1px 4px;
   cursor: pointer;
+}
+
+.tl-add-track-select:hover {
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--accent-border-strong);
 }
 
 .tl-track-item {
@@ -241,7 +254,8 @@
 }
 
 .tl-track-item.selected {
-  background: var(--accent-muted);
+  background: var(--accent-soft-bg);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .tl-track-node {
@@ -376,7 +390,8 @@
 }
 
 .tl-track-row.selected {
-  background: rgba(77, 166, 255, 0.04);
+  background: var(--accent-soft-bg);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .tl-track-row:hover {
@@ -467,8 +482,10 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--bg-surface);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   padding: 2px 6px;
 }
 
@@ -480,7 +497,7 @@
 
 .tl-kf-field label {
   font-size: 8px;
-  color: var(--text-disabled);
+  color: var(--control-text-muted);
   text-transform: uppercase;
 }
 
@@ -488,10 +505,11 @@
 .tl-kf-field select {
   font: var(--text-numeric);
   font-size: 11px;
-  color: var(--text-primary);
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
+  color: var(--control-text);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: 3px;
+  box-shadow: var(--control-shadow);
   padding: 1px 4px;
   width: 55px;
   min-height: 20px;

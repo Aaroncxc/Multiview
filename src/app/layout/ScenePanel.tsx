@@ -35,7 +35,7 @@ const AddParticleEmitterSection: React.FC = () => {
         onClick={handleAdd}
         title="Add particle emitter"
       >
-        <span>✨</span>
+        <span className="scene-icon">FX</span>
         <span>Particle Emitter</span>
       </button>
     </div>
@@ -445,7 +445,7 @@ const AddCameraSection: React.FC = () => {
         onClick={handleAdd}
         title="Add a camera viewpoint"
       >
-        <span>📷</span>
+        <span className="scene-icon">CAM</span>
         <span>Add Camera</span>
       </button>
     </div>
@@ -471,9 +471,9 @@ const AddLightSection: React.FC = () => {
       <span className="scene-section-label">Add Light</span>
       <div className="scene-light-buttons">
         {[
-          { kind: "directional", icon: "☀", label: "Directional" },
-          { kind: "point", icon: "💡", label: "Point" },
-          { kind: "spot", icon: "🔦", label: "Spot" },
+          { kind: "directional", icon: "D", label: "Directional" },
+          { kind: "point", icon: "P", label: "Point" },
+          { kind: "spot", icon: "S", label: "Spot" },
         ].map((l) => (
           <button
             key={l.kind}
@@ -481,7 +481,7 @@ const AddLightSection: React.FC = () => {
             onClick={() => handleAddLight(l.kind)}
             title={`Add ${l.label} Light`}
           >
-            <span>{l.icon}</span>
+            <span className="scene-icon">{l.icon}</span>
             <span>{l.label}</span>
           </button>
         ))}
@@ -786,12 +786,12 @@ const PostProcessingSection: React.FC<{
 
 const CameraSection: React.FC = () => {
   const presets = [
-    { key: "perspective", label: "Perspective", icon: "📐" },
-    { key: "front", label: "Front", icon: "⬆" },
-    { key: "back", label: "Back", icon: "⬇" },
-    { key: "left", label: "Left", icon: "⬅" },
-    { key: "right", label: "Right", icon: "➡" },
-    { key: "top", label: "Top", icon: "🔝" },
+    { key: "perspective", label: "Perspective", icon: "P" },
+    { key: "front", label: "Front", icon: "F" },
+    { key: "back", label: "Back", icon: "B" },
+    { key: "left", label: "Left", icon: "L" },
+    { key: "right", label: "Right", icon: "R" },
+    { key: "top", label: "Top", icon: "T" },
   ] as const;
 
   return (
@@ -811,7 +811,7 @@ const CameraSection: React.FC = () => {
             }}
             title={p.label}
           >
-            <span>{p.icon}</span>
+            <span className="scene-icon">{p.icon}</span>
             <span>{p.label}</span>
           </button>
         ))}

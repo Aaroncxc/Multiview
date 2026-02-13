@@ -11,9 +11,27 @@ import { TimelineRuntime } from "../../core/timeline/timelineRuntime";
 import { useEditorStore } from "../../store/editorStore";
 import { commandStack } from "../../core/commands/commandStack";
 import { showToast } from "../../ui/Toast";
-import { saveProject, importFromJSON, loadAutoSave } from "../../core/io/projectStorage";
+import {
+  importFromJSON,
+  isFileSystemAccessSupported,
+  listKnownProjectFiles,
+  listProjects,
+  loadKnownProjectFile,
+  loadProject,
+  rememberKnownProjectFile,
+  saveProject,
+  updateKnownProjectFileMeta,
+  type KnownProjectFileListItem,
+  type ProjectListItem,
+} from "../../core/io/projectStorage";
 import { rebuildSceneFromDocument } from "../../core/io/sceneRebuilder";
-import type { Transform, SceneNode, NodeId } from "../../core/document/types";
+import type {
+  SceneDocument,
+  Transform,
+  SceneNode,
+  NodeId,
+} from "../../core/document/types";
+import { collectSubtreeIds } from "../../core/document/sceneDocument";
 import { mergeViewerExportOptions } from "../../core/io/viewerExportOptions";
 import { exportViewerHTML } from "../../core/io/viewerExport";
 import "./Viewport.css";
@@ -31,8 +49,82 @@ export function getInteractionRuntime(): InteractionRuntime | null {
   return interactionRuntime;
 }
 
+const INTRO_RELEASE_NOTES: Array<{ title: string; detail: string }> = [
+  {
+    title: "TE-inspired UI refresh",
+    detail: "Light and dark variants now share a gray/orange design language.",
+  },
+  {
+    title: "Viewport-embedded floating panels",
+    detail: "Scene and Scene Settings can stay inside the viewport layout.",
+  },
+  {
+    title: "Viewer export upgrades",
+    detail:
+      "Loading screen, custom CSS/theme, responsive ratio, title/description, and preview image are ready.",
+  },
+  {
+    title: "Copy/Paste in progress",
+    detail: "Ctrl+C / Ctrl+V now works as the next roadmap milestone.",
+  },
+];
+
+const INTRO_COMING_NEXT: Array<{
+  title: string;
+  detail: string;
+  stage: string;
+}> = [
+  {
+    title: "Copy/Paste completion",
+    detail: "Finalize behavior across object types and polish interaction details.",
+    stage: "In progress",
+  },
+  {
+    title: "Group and hierarchy tools",
+    detail: "Create groups, reorganize nodes faster, and improve scene structure workflows.",
+    stage: "Next",
+  },
+  {
+    title: "Pivot point editing",
+    detail: "Adjust local pivot placement for more precise transforms and animation setup.",
+    stage: "Planned",
+  },
+  {
+    title: "Multi-selection workflow",
+    detail: "Select and transform multiple nodes together for layout and batch edits.",
+    stage: "Planned",
+  },
+];
+
+type LoadedProjectSource = "internal" | "known-file" | "file";
+
+interface LoadedProjectMeta {
+  source: LoadedProjectSource;
+  key?: string | null;
+}
+
+type OpenFilePickerFn = (options?: {
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: Array<{
+    description?: string;
+    accept: Record<string, string[]>;
+  }>;
+}) => Promise<FileSystemFileHandle[]>;
+
+interface WindowWithFilePicker extends Window {
+  showOpenFilePicker?: OpenFilePickerFn;
+}
+
+interface CopiedSubtreePayload {
+  rootId: NodeId;
+  rootParentId: NodeId | null;
+  nodes: Record<NodeId, SceneNode>;
+}
+
 export const Viewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
 
   const selectNode = useEditorStore((s) => s.selectNode);
@@ -44,11 +136,306 @@ export const Viewport: React.FC = () => {
   const showGrid = useEditorStore((s) => s.showGrid);
   const snapEnabled = useEditorStore((s) => s.snapEnabled);
   const snapValue = useEditorStore((s) => s.snapValue);
+  const meshEditMode = useEditorStore((s) => s.meshEditMode);
+  const meshEditSelection = useEditorStore((s) => s.meshEditSelection);
+  const setMeshEditMode = useEditorStore((s) => s.setMeshEditMode);
+  const setMeshEditSelection = useEditorStore((s) => s.setMeshEditSelection);
+  const clearMeshEditSelection = useEditorStore((s) => s.clearMeshEditSelection);
   const document = useEditorStore((s) => s.document);
   const isTransparentViewport =
     document.sceneSettings.backgroundType === "transparent";
   const [viewerPreviewUrl, setViewerPreviewUrl] = useState<string | null>(null);
+  const [isStartupIntroOpen, setIsStartupIntroOpen] = useState(true);
+  const [isProjectLoaderOpen, setIsProjectLoaderOpen] = useState(false);
+  const [isProjectLoaderBusy, setIsProjectLoaderBusy] = useState(false);
+  const [projectLoaderError, setProjectLoaderError] = useState<string | null>(null);
+  const [savedProjects, setSavedProjects] = useState<ProjectListItem[]>([]);
+  const [knownProjectFiles, setKnownProjectFiles] = useState<
+    KnownProjectFileListItem[]
+  >([]);
+  const supportsFileSystemAccess = isFileSystemAccessSupported();
   const viewerPreviewUrlRef = useRef<string | null>(null);
+  const activeProjectKeyRef = useRef<string | null>(null);
+  const lastSavedFingerprintRef = useRef<string>(JSON.stringify(document));
+  const visibilitySyncRef = useRef<Map<NodeId, { visible: boolean; runtimeObjectUuid?: string }>>(
+    new Map()
+  );
+  const appVersion = __APP_VERSION__;
+
+  const dismissStartupIntro = useCallback(() => {
+    setIsStartupIntroOpen(false);
+  }, []);
+
+  const getDocumentFingerprint = useCallback((doc: SceneDocument) => {
+    return JSON.stringify(doc);
+  }, []);
+
+  const isCurrentDocumentDirty = useCallback(() => {
+    const currentDoc = useEditorStore.getState().document;
+    return getDocumentFingerprint(currentDoc) !== lastSavedFingerprintRef.current;
+  }, [getDocumentFingerprint]);
+
+  const confirmDiscardUnsavedChanges = useCallback(() => {
+    if (!isCurrentDocumentDirty()) return true;
+    return window.confirm("Ungespeicherte Änderungen verwerfen?");
+  }, [isCurrentDocumentDirty]);
+
+  const captureProjectPreview = useCallback((): string | null => {
+    if (!backend) return null;
+    try {
+      return backend.captureScreenshot("image/jpeg", 0.8);
+    } catch (err) {
+      console.warn("Project preview capture failed:", err);
+      return null;
+    }
+  }, []);
+
+  const refreshProjectLoaderData = useCallback(async () => {
+    setIsProjectLoaderBusy(true);
+    setProjectLoaderError(null);
+    try {
+      const [projects, knownFiles] = await Promise.all([
+        listProjects(),
+        supportsFileSystemAccess ? listKnownProjectFiles() : Promise.resolve([]),
+      ]);
+      setSavedProjects(projects);
+      setKnownProjectFiles(knownFiles);
+    } catch (err) {
+      console.error("Failed to load project lists:", err);
+      setProjectLoaderError("Failed to load saved projects.");
+    } finally {
+      setIsProjectLoaderBusy(false);
+    }
+  }, [supportsFileSystemAccess]);
+
+  const closeProjectLoader = useCallback(() => {
+    setIsProjectLoaderOpen(false);
+    setProjectLoaderError(null);
+  }, []);
+
+  const openProjectLoader = useCallback(() => {
+    setIsProjectLoaderOpen(true);
+    void refreshProjectLoaderData();
+  }, [refreshProjectLoaderData]);
+
+  const applyLoadedProjectDocument = useCallback(
+    async (doc: SceneDocument, meta: LoadedProjectMeta) => {
+      if (!backend) {
+        throw new Error("Editor backend is not ready yet.");
+      }
+
+      const state = useEditorStore.getState();
+      const docForRebuild = structuredClone(doc);
+      for (const node of Object.values(docForRebuild.nodes)) {
+        delete node.runtimeObjectUuid;
+      }
+
+      state.setDocument(docForRebuild);
+      const updatedDoc = await rebuildSceneFromDocument(backend, docForRebuild);
+      state.updateDocument(updatedDoc);
+      backend.applySceneSettings(updatedDoc.sceneSettings);
+      state.selectNode(null);
+      commandStack.clear();
+      state.refreshUndoState();
+
+      activeProjectKeyRef.current =
+        meta.source === "internal" ? meta.key ?? null : null;
+      lastSavedFingerprintRef.current = getDocumentFingerprint(updatedDoc);
+
+      return updatedDoc;
+    },
+    [getDocumentFingerprint]
+  );
+
+  const saveCurrentProject = useCallback(async () => {
+    try {
+      const state = useEditorStore.getState();
+      const savedKey = await saveProject(state.document, {
+        key: activeProjectKeyRef.current ?? undefined,
+        previewDataUrl: captureProjectPreview(),
+      });
+      activeProjectKeyRef.current = savedKey;
+      lastSavedFingerprintRef.current = getDocumentFingerprint(state.document);
+      showToast("Project saved", "success");
+      if (isProjectLoaderOpen) {
+        void refreshProjectLoaderData();
+      }
+      return savedKey;
+    } catch (err) {
+      console.error("Project save failed:", err);
+      showToast("Failed to save project", "error");
+      return null;
+    }
+  }, [
+    captureProjectPreview,
+    getDocumentFingerprint,
+    isProjectLoaderOpen,
+    refreshProjectLoaderData,
+  ]);
+
+  const formatDateTime = useCallback((iso: string) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleString();
+  }, []);
+
+  const loadProjectFromDocument = useCallback(
+    async (doc: SceneDocument, meta: LoadedProjectMeta) => {
+      await applyLoadedProjectDocument(doc, meta);
+      closeProjectLoader();
+      void refreshProjectLoaderData();
+      showToast(`Loaded project: ${doc.projectName}`, "success");
+    },
+    [applyLoadedProjectDocument, closeProjectLoader, refreshProjectLoaderData]
+  );
+
+  const handleLoadSavedProject = useCallback(
+    async (project: ProjectListItem) => {
+      if (!confirmDiscardUnsavedChanges()) return;
+      try {
+        const doc = await loadProject(project.key);
+        if (!doc) {
+          showToast("Saved project could not be loaded", "error");
+          return;
+        }
+        await loadProjectFromDocument(doc, {
+          source: "internal",
+          key: project.key,
+        });
+      } catch (err) {
+        console.error("Failed to load internal project:", err);
+        showToast("Failed to load project", "error");
+      }
+    },
+    [confirmDiscardUnsavedChanges, loadProjectFromDocument]
+  );
+
+  const loadProjectFromFile = useCallback(
+    async (file: File, knownFileId?: string): Promise<boolean> => {
+      if (!confirmDiscardUnsavedChanges()) return false;
+
+      try {
+        const doc = await importFromJSON(file);
+        await loadProjectFromDocument(doc, {
+          source: knownFileId ? "known-file" : "file",
+        });
+        if (knownFileId) {
+          await updateKnownProjectFileMeta(knownFileId, {
+            name: file.name,
+            lastOpenedAt: new Date().toISOString(),
+            previewDataUrl: captureProjectPreview(),
+          });
+          void refreshProjectLoaderData();
+        }
+        return true;
+      } catch (err) {
+        console.error("Failed to load project file:", err);
+        showToast(`Failed to load ${file.name}`, "error");
+        return false;
+      }
+    },
+    [
+      captureProjectPreview,
+      confirmDiscardUnsavedChanges,
+      loadProjectFromDocument,
+      refreshProjectLoaderData,
+    ]
+  );
+
+  const handleLoadKnownProjectFile = useCallback(
+    async (item: KnownProjectFileListItem) => {
+      if (!confirmDiscardUnsavedChanges()) return;
+
+      try {
+        const { file } = await loadKnownProjectFile(item.id);
+        const doc = await importFromJSON(file);
+        await applyLoadedProjectDocument(doc, { source: "known-file" });
+        await updateKnownProjectFileMeta(item.id, {
+          name: file.name,
+          lastOpenedAt: new Date().toISOString(),
+          previewDataUrl: captureProjectPreview(),
+        });
+        closeProjectLoader();
+        void refreshProjectLoaderData();
+        showToast(`Loaded project: ${doc.projectName}`, "success");
+      } catch (err) {
+        console.error("Failed to load known project file:", err);
+        showToast("Failed to load known file", "error");
+      }
+    },
+    [
+      applyLoadedProjectDocument,
+      captureProjectPreview,
+      closeProjectLoader,
+      confirmDiscardUnsavedChanges,
+      refreshProjectLoaderData,
+    ]
+  );
+
+  const handleLoadProjectFromComputer = useCallback(async () => {
+    if (supportsFileSystemAccess) {
+      const pickerWindow = window as WindowWithFilePicker;
+      if (pickerWindow.showOpenFilePicker) {
+        try {
+          const [handle] = await pickerWindow.showOpenFilePicker({
+            multiple: false,
+            excludeAcceptAllOption: true,
+            types: [
+              {
+                description: "MultiView Project",
+                accept: {
+                  "application/json": [".json", ".multiview.json"],
+                },
+              },
+            ],
+          });
+          if (!handle) return;
+          const file = await handle.getFile();
+          const loaded = await loadProjectFromFile(file);
+          if (!loaded) return;
+
+          const previewDataUrl = captureProjectPreview();
+          try {
+            const knownFileId = await rememberKnownProjectFile(handle, {
+              name: file.name,
+              lastOpenedAt: new Date().toISOString(),
+              previewDataUrl,
+            });
+            await updateKnownProjectFileMeta(knownFileId, {
+              name: file.name,
+              lastOpenedAt: new Date().toISOString(),
+              previewDataUrl,
+            });
+            void refreshProjectLoaderData();
+          } catch (rememberErr) {
+            console.warn("Could not remember selected file handle:", rememberErr);
+          }
+          return;
+        } catch (err) {
+          if ((err as DOMException).name === "AbortError") return;
+          console.error("Native file picker failed:", err);
+        }
+      }
+    }
+
+    projectFileInputRef.current?.click();
+  }, [
+    captureProjectPreview,
+    loadProjectFromFile,
+    refreshProjectLoaderData,
+    supportsFileSystemAccess,
+  ]);
+
+  const handleProjectFileInputChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        await loadProjectFromFile(file);
+      }
+      e.target.value = "";
+    },
+    [loadProjectFromFile]
+  );
 
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -147,22 +534,6 @@ export const Viewport: React.FC = () => {
       backend.applySceneSettings(initialSettings);
     }
 
-    // Load autosave if exists (restore last session)
-    loadAutoSave().then((savedDoc) => {
-      if (!savedDoc || !savedDoc.rootIds?.length || !backend) return;
-
-      const docForRebuild = structuredClone(savedDoc);
-      for (const node of Object.values(docForRebuild.nodes)) {
-        delete node.runtimeObjectUuid;
-      }
-
-      useEditorStore.getState().setDocument(docForRebuild);
-      rebuildSceneFromDocument(backend, docForRebuild).then((updatedDoc) => {
-        useEditorStore.getState().updateDocument(updatedDoc);
-        backend?.applySceneSettings(updatedDoc.sceneSettings);
-      });
-    });
-
     // Initialize Interaction Runtime
     interactionRuntime = new InteractionRuntime(
       backend.getObjectRegistry(),
@@ -209,9 +580,9 @@ export const Viewport: React.FC = () => {
     const state = useEditorStore.getState();
     const node = selectedNodeId ? state.document.nodes[selectedNodeId] : null;
     const uuid = node?.runtimeObjectUuid ?? null;
-    backend.attachGizmo(uuid);
+    backend.attachGizmo(meshEditMode === "object" ? uuid : null);
     backend.highlightSelected(uuid);
-  }, [selectedNodeId]);
+  }, [meshEditMode, selectedNodeId]);
 
   // ── Sync grid visibility ──
   useEffect(() => {
@@ -225,14 +596,50 @@ export const Viewport: React.FC = () => {
 
   // ── Track hovered node for interaction events ──
   const hoveredNodeRef = useRef<string | null>(null);
+  const clipboardSubtreeRef = useRef<CopiedSubtreePayload | null>(null);
 
   // ── Handle canvas click → pick & select + fire interaction ──
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!backend) return;
+
+      const state = useEditorStore.getState();
+      const selectedNode = state.selectedNodeId
+        ? state.document.nodes[state.selectedNodeId]
+        : null;
+      const selectedMeshUuid =
+        selectedNode && selectedNode.type === "mesh"
+          ? selectedNode.runtimeObjectUuid
+          : null;
+
+      if (meshEditMode !== "object" && selectedMeshUuid) {
+        backend.ensureMeshEditable(selectedMeshUuid);
+        const component = backend.pickMeshComponent(
+          selectedMeshUuid,
+          e.clientX,
+          e.clientY,
+          meshEditMode
+        );
+        if (component) {
+          const selection = {
+            mode: component.mode,
+            faceIndex: component.faceIndex,
+            vertexIndex: component.vertexIndex,
+            edge: component.edge,
+          };
+          setMeshEditSelection(selection);
+          backend.highlightMeshComponent(selectedMeshUuid, selection);
+          return;
+        }
+      }
+
+      if (meshEditMode !== "object") {
+        clearMeshEditSelection();
+        backend.clearMeshEditHighlight();
+      }
+
       const result = backend.pick(e.clientX, e.clientY);
       if (result) {
-        const state = useEditorStore.getState();
         const node = state.getNodeByRuntimeUuid(result.objectUuid);
         if (node) {
           selectNode(node.id);
@@ -244,7 +651,7 @@ export const Viewport: React.FC = () => {
         selectNode(null);
       }
     },
-    [selectNode]
+    [clearMeshEditSelection, meshEditMode, selectNode, setMeshEditSelection]
   );
 
   // ── Double click ──
@@ -292,20 +699,279 @@ export const Viewport: React.FC = () => {
     []
   );
 
+  useEffect(() => {
+    if (!backend) return;
+
+    const state = useEditorStore.getState();
+    const selected = selectedNodeId ? state.document.nodes[selectedNodeId] : null;
+    const selectedMeshUuid =
+      selected && selected.type === "mesh" ? selected.runtimeObjectUuid : null;
+
+    if (meshEditMode === "object" || !selectedMeshUuid) {
+      clearMeshEditSelection();
+      backend.clearMeshEditHighlight();
+      return;
+    }
+
+    backend.ensureMeshEditable(selectedMeshUuid);
+
+    if (meshEditSelection) {
+      backend.highlightMeshComponent(selectedMeshUuid, meshEditSelection);
+    } else {
+      backend.clearMeshEditHighlight();
+    }
+  }, [
+    clearMeshEditSelection,
+    meshEditMode,
+    meshEditSelection,
+    selectedNodeId,
+    document.nodes,
+  ]);
+
   // ── Handle keyboard shortcuts ──
   useEffect(() => {
+    const offsetTransform = (transform: Transform, enabled: boolean): Transform => {
+      const next = structuredClone(transform);
+      if (enabled) {
+        next.position[0] += 0.5;
+        next.position[2] += 0.5;
+      }
+      return next;
+    };
+
+    const collectCopiedSubtree = (
+      doc: SceneDocument,
+      rootId: NodeId
+    ): CopiedSubtreePayload | null => {
+      const root = doc.nodes[rootId];
+      if (!root || root.type === "scene") return null;
+
+      const subtreeIds = collectSubtreeIds(doc, rootId);
+      const nodes: Record<NodeId, SceneNode> = {};
+      for (const nodeId of subtreeIds) {
+        const source = doc.nodes[nodeId];
+        if (source) {
+          nodes[nodeId] = structuredClone(source);
+        }
+      }
+      return {
+        rootId,
+        rootParentId: root.parentId,
+        nodes,
+      };
+    };
+
+    const duplicateRuntimeForNode = (
+      sourceNode: SceneNode,
+      nextName: string,
+      nextTransform: Transform
+    ): string | undefined => {
+      if (!backend) return undefined;
+
+      if (sourceNode.type === "light" && sourceNode.light) {
+        const lightCopy = structuredClone(sourceNode.light);
+        const result = backend.addLight(lightCopy.kind, nextName, lightCopy);
+        backend.setObjectTransform(result.uuid, nextTransform);
+        return result.uuid;
+      }
+
+      if (sourceNode.type === "particleEmitter" && sourceNode.particleEmitter) {
+        const emitterCopy = structuredClone(sourceNode.particleEmitter);
+        const result = backend.addParticleEmitter(emitterCopy, nextName);
+        backend.setObjectTransform(result.uuid, nextTransform);
+        return result.uuid;
+      }
+
+      if (sourceNode.runtimeObjectUuid) {
+        const result = backend.duplicateObject(sourceNode.runtimeObjectUuid);
+        if (!result) return undefined;
+        backend.setObjectTransform(result.uuid, nextTransform);
+        return result.uuid;
+      }
+
+      return undefined;
+    };
+
+    const removeSubtree = (rootId: NodeId) => {
+      const state = useEditorStore.getState();
+      const doc = state.document;
+      if (!doc.nodes[rootId]) return;
+
+      const subtreeIds = collectSubtreeIds(doc, rootId);
+      const runtimeUuids = Array.from(
+        new Set(
+          subtreeIds
+            .map((nodeId) => doc.nodes[nodeId]?.runtimeObjectUuid ?? null)
+            .filter((uuid): uuid is string => Boolean(uuid))
+        )
+      );
+
+      for (const runtimeUuid of runtimeUuids) {
+        backend?.removeObject(runtimeUuid);
+      }
+
+      state.removeSceneNode(rootId);
+    };
+
+    const insertSubtree = (
+      payload: CopiedSubtreePayload,
+      options?: {
+        renameRootAsCopy?: boolean;
+        offset?: boolean;
+        preserveIds?: boolean;
+        rootParentId?: NodeId | null;
+        selectInserted?: boolean;
+      }
+    ): NodeId | null => {
+      const sourceRoot = payload.nodes[payload.rootId];
+      if (!sourceRoot) return null;
+
+      const state = useEditorStore.getState();
+      const nextDoc = structuredClone(state.document);
+      const rootParentCandidate =
+        options?.rootParentId === undefined
+          ? payload.rootParentId
+          : options.rootParentId;
+      const resolvedRootParentId =
+        rootParentCandidate && nextDoc.nodes[rootParentCandidate]
+          ? rootParentCandidate
+          : null;
+      const rootParentNode = resolvedRootParentId
+        ? nextDoc.nodes[resolvedRootParentId]
+        : null;
+      const normalizedRootParentId =
+        rootParentNode && rootParentNode.type === "group"
+          ? resolvedRootParentId
+          : null;
+
+      const orderedSourceIds: NodeId[] = [];
+      const walk = (nodeId: NodeId) => {
+        const node = payload.nodes[nodeId];
+        if (!node) return;
+        orderedSourceIds.push(nodeId);
+        for (const childId of node.children) {
+          walk(childId);
+        }
+      };
+      walk(payload.rootId);
+
+      const idMap = new Map<NodeId, NodeId>();
+      let failedRuntimeCount = 0;
+
+      for (const sourceId of orderedSourceIds) {
+        const sourceNode = payload.nodes[sourceId];
+        if (!sourceNode) continue;
+
+        const isRoot = sourceId === payload.rootId;
+        const mappedParentId = isRoot
+          ? normalizedRootParentId
+          : sourceNode.parentId
+            ? idMap.get(sourceNode.parentId) ?? null
+            : null;
+
+        const tentativeId = options?.preserveIds ? sourceId : crypto.randomUUID();
+        const nextId = nextDoc.nodes[tentativeId] ? crypto.randomUUID() : tentativeId;
+        idMap.set(sourceId, nextId);
+
+        const nextName =
+          isRoot && options?.renameRootAsCopy !== false
+            ? `${sourceNode.name}_copy`
+            : sourceNode.name;
+        const nextTransform = offsetTransform(
+          sourceNode.transform,
+          options?.offset !== false
+        );
+
+        const nextNode: SceneNode = {
+          ...structuredClone(sourceNode),
+          id: nextId,
+          name: nextName,
+          parentId: mappedParentId,
+          children: [],
+          transform: nextTransform,
+        };
+
+        const duplicatedRuntimeUuid = duplicateRuntimeForNode(
+          sourceNode,
+          nextName,
+          nextTransform
+        );
+        if (duplicatedRuntimeUuid) {
+          nextNode.runtimeObjectUuid = duplicatedRuntimeUuid;
+        } else {
+          delete nextNode.runtimeObjectUuid;
+          if (sourceNode.runtimeObjectUuid) {
+            failedRuntimeCount += 1;
+          }
+        }
+
+        nextDoc.nodes[nextId] = nextNode;
+        if (mappedParentId && nextDoc.nodes[mappedParentId]) {
+          nextDoc.nodes[mappedParentId]!.children.push(nextId);
+        } else {
+          nextDoc.rootIds.push(nextId);
+        }
+      }
+
+      for (const sourceId of orderedSourceIds) {
+        const nextId = idMap.get(sourceId);
+        const sourceNode = payload.nodes[sourceId];
+        if (!nextId || !sourceNode) continue;
+        const mappedChildren = sourceNode.children
+          .map((childId) => idMap.get(childId))
+          .filter((nodeId): nodeId is NodeId => Boolean(nodeId));
+        const nextNode = nextDoc.nodes[nextId]!;
+        nextNode.children = mappedChildren;
+
+        if (
+          nextNode.clonerConfig &&
+          idMap.has(nextNode.clonerConfig.sourceNodeId)
+        ) {
+          nextNode.clonerConfig = {
+            ...nextNode.clonerConfig,
+            sourceNodeId: idMap.get(nextNode.clonerConfig.sourceNodeId)!,
+          };
+        }
+
+        if (nextNode.interactions) {
+          nextNode.interactions = {
+            ...nextNode.interactions,
+            actions: nextNode.interactions.actions.map((action) =>
+              action.targetNodeId && idMap.has(action.targetNodeId)
+                ? { ...action, targetNodeId: idMap.get(action.targetNodeId)! }
+                : action
+            ),
+          };
+        }
+      }
+
+      const insertedRootId = idMap.get(payload.rootId) ?? null;
+      state.updateDocument(nextDoc);
+      if (insertedRootId && options?.selectInserted !== false) {
+        state.selectNode(insertedRootId);
+      }
+      if (failedRuntimeCount > 0) {
+        showToast(
+          `${failedRuntimeCount} copied node(s) were restored without runtime object`,
+          "warning"
+        );
+      }
+      return insertedRootId;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture when typing in inputs
       if (
         e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
       )
         return;
 
       const state = useEditorStore.getState();
       const ctrl = e.ctrlKey || e.metaKey;
 
-      // ── Ctrl shortcuts ──
+      // Ctrl shortcuts
       if (ctrl) {
         switch (e.key.toLowerCase()) {
           case "z": {
@@ -327,39 +993,130 @@ export const Viewport: React.FC = () => {
           }
           case "d": {
             e.preventDefault();
-            // Duplicate selected
-            if (state.selectedNodeId && backend) {
-              const node = state.document.nodes[state.selectedNodeId];
-              if (node?.runtimeObjectUuid) {
-                const result = backend.duplicateObject(node.runtimeObjectUuid);
-                if (result) {
-                  const newNodeId = state.addSceneNode({
-                    name: node.name + "_copy",
-                    type: node.type,
-                    runtimeObjectUuid: result.uuid,
-                    transform: result.transform,
-                    mesh: node.mesh ? { ...node.mesh } : undefined,
-                  });
-                  state.selectNode(newNodeId);
-                  showToast(`Duplicated ${node.name}`, "success");
-                }
-              }
+            if (!state.selectedNodeId) return;
+            const payload = collectCopiedSubtree(state.document, state.selectedNodeId);
+            if (!payload) {
+              showToast("This node cannot be duplicated", "warning");
+              return;
             }
+            clipboardSubtreeRef.current = payload;
+
+            let insertedRootId: NodeId | null = null;
+            commandStack.execute({
+              label: `Duplicate ${payload.nodes[payload.rootId]?.name ?? "Node"}`,
+              execute: () => {
+                insertedRootId = insertSubtree(payload, {
+                  renameRootAsCopy: true,
+                  offset: true,
+                  rootParentId: payload.rootParentId,
+                  selectInserted: true,
+                });
+              },
+              undo: () => {
+                if (insertedRootId) {
+                  removeSubtree(insertedRootId);
+                }
+              },
+            });
+            state.refreshUndoState();
+            showToast(`Duplicated ${payload.nodes[payload.rootId]?.name ?? "node"}`, "success");
+            return;
+          }
+          case "c": {
+            e.preventDefault();
+            if (!state.selectedNodeId) {
+              showToast("Nothing selected to copy", "info");
+              return;
+            }
+            const payload = collectCopiedSubtree(state.document, state.selectedNodeId);
+            if (!payload) {
+              showToast("This node cannot be copied", "warning");
+              return;
+            }
+            clipboardSubtreeRef.current = payload;
+            showToast(`Copied ${payload.nodes[payload.rootId]?.name ?? "node"}`, "info");
+            return;
+          }
+          case "v": {
+            e.preventDefault();
+            const payload = clipboardSubtreeRef.current;
+            if (!payload) {
+              showToast("Clipboard is empty", "info");
+              return;
+            }
+            let insertedRootId: NodeId | null = null;
+            commandStack.execute({
+              label: `Paste ${payload.nodes[payload.rootId]?.name ?? "Node"}`,
+              execute: () => {
+                insertedRootId = insertSubtree(payload, {
+                  renameRootAsCopy: true,
+                  offset: true,
+                  rootParentId: payload.rootParentId,
+                  selectInserted: true,
+                });
+              },
+              undo: () => {
+                if (insertedRootId) {
+                  removeSubtree(insertedRootId);
+                }
+              },
+            });
+            state.refreshUndoState();
+            showToast(`Pasted ${payload.nodes[payload.rootId]?.name ?? "node"}`, "success");
+            return;
+          }
+          case "g": {
+            e.preventDefault();
+            if (e.shiftKey) {
+              if (!state.selectedNodeId) return;
+              const selectedNode = state.document.nodes[state.selectedNodeId];
+              if (!selectedNode || selectedNode.type !== "group") {
+                showToast("Select a group to ungroup", "info");
+                return;
+              }
+              const ok = state.ungroupNode(selectedNode.id);
+              if (ok) {
+                showToast(`Ungrouped ${selectedNode.name}`, "success");
+              }
+              return;
+            }
+
+            const groupId = state.groupSelectedNode();
+            if (!groupId) {
+              showToast("Select a node to group", "info");
+              return;
+            }
+            const groupNode = useEditorStore.getState().document.nodes[groupId];
+            showToast(`Created ${groupNode?.name ?? "group"}`, "success");
             return;
           }
           case "s": {
             e.preventDefault();
-            saveProject(state.document)
-              .then(() => showToast("Project saved", "success"))
-              .catch(() => showToast("Failed to save", "error"));
+            window.dispatchEvent(new CustomEvent("editor:save-project"));
             return;
           }
         }
         return;
       }
 
-      // ── Non-ctrl shortcuts ──
+      // Non-ctrl shortcuts
       switch (e.key.toLowerCase()) {
+        case "1":
+          state.setMeshEditMode("object");
+          showToast("Object mode", "info");
+          break;
+        case "2":
+          state.setMeshEditMode("vertex");
+          showToast("Vertex mode", "info");
+          break;
+        case "3":
+          state.setMeshEditMode("edge");
+          showToast("Edge mode", "info");
+          break;
+        case "4":
+          state.setMeshEditMode("face");
+          showToast("Face mode", "info");
+          break;
         case "v":
           state.setToolMode("select");
           break;
@@ -387,30 +1144,34 @@ export const Viewport: React.FC = () => {
         case "backspace":
           if (state.selectedNodeId) {
             const node = state.document.nodes[state.selectedNodeId];
-            if (node) {
-              // Store for undo
-              const deletedNode = structuredClone(node);
-              const runtimeUuid = node.runtimeObjectUuid;
+            if (!node) return;
+            const deletedPayload = collectCopiedSubtree(state.document, node.id);
+            if (!deletedPayload) return;
+            let activeDeletedRootId: NodeId = node.id;
 
-              commandStack.execute({
-                label: `Delete ${node.name}`,
-                execute: () => {
-                  if (runtimeUuid) backend?.removeObject(runtimeUuid);
-                  useEditorStore.getState().removeSceneNode(deletedNode.id);
-                },
-                undo: () => {
-                  // Re-add the node (without runtime — would need re-create primitive)
-                  useEditorStore.getState().addSceneNode({
-                    name: deletedNode.name,
-                    type: deletedNode.type,
-                    transform: deletedNode.transform,
-                    mesh: deletedNode.mesh,
-                  });
-                  showToast(`Restored ${deletedNode.name}`, "info");
-                },
-              });
-              state.refreshUndoState();
-            }
+            commandStack.execute({
+              label: `Delete ${node.name}`,
+              execute: () => {
+                removeSubtree(activeDeletedRootId);
+              },
+              undo: () => {
+                const restoredRootId = insertSubtree(deletedPayload, {
+                  renameRootAsCopy: false,
+                  offset: false,
+                  preserveIds: true,
+                  rootParentId: deletedPayload.rootParentId,
+                  selectInserted: true,
+                });
+                if (restoredRootId) {
+                  activeDeletedRootId = restoredRootId;
+                  showToast(
+                    `Restored ${deletedPayload.nodes[deletedPayload.rootId]?.name ?? "node"}`,
+                    "info"
+                  );
+                }
+              },
+            });
+            state.refreshUndoState();
           }
           break;
         case "escape":
@@ -423,10 +1184,57 @@ export const Viewport: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // ── Handle file import event ──
+  useEffect(() => {
+    if (!isStartupIntroOpen) return;
+
+    const handleEscapeIntro = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        dismissStartupIntro();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscapeIntro);
+    return () => window.removeEventListener("keydown", handleEscapeIntro);
+  }, [dismissStartupIntro, isStartupIntroOpen]);
+
+  useEffect(() => {
+    const handleSaveProject = () => {
+      void saveCurrentProject();
+    };
+
+    const handleOpenProjectLoader = () => {
+      openProjectLoader();
+    };
+
+    window.addEventListener("editor:save-project", handleSaveProject);
+    window.addEventListener("editor:open-project-loader", handleOpenProjectLoader);
+
+    return () => {
+      window.removeEventListener("editor:save-project", handleSaveProject);
+      window.removeEventListener(
+        "editor:open-project-loader",
+        handleOpenProjectLoader
+      );
+    };
+  }, [openProjectLoader, saveCurrentProject]);
+
+  useEffect(() => {
+    if (!isProjectLoaderOpen) return;
+
+    const handleEscapeLoader = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeProjectLoader();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscapeLoader);
+    return () => window.removeEventListener("keydown", handleEscapeLoader);
+  }, [closeProjectLoader, isProjectLoaderOpen]);
+
+  // Handle file import event
   useEffect(() => {
     const handleImport = async (e: Event) => {
-      const file = (e as CustomEvent).detail?.file as File;
+      const file = (e as CustomEvent).detail?.file as File | undefined;
       if (!file || !backend) return;
 
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -435,50 +1243,41 @@ export const Viewport: React.FC = () => {
 
       try {
         if (isProjectJson) {
-          // MultiView project file — rebuild scene from document
-          const doc = await importFromJSON(file);
-          const { setDocument, updateDocument } = useEditorStore.getState();
-
-          // Strip invalid runtimeObjectUuids before rebuild
-          const docForRebuild = structuredClone(doc);
-          for (const node of Object.values(docForRebuild.nodes)) {
-            delete node.runtimeObjectUuid;
-          }
-
-          setDocument(docForRebuild);
-          const updatedDoc = await rebuildSceneFromDocument(backend, docForRebuild);
-          updateDocument(updatedDoc);
-          backend.applySceneSettings(updatedDoc.sceneSettings);
-
-          showToast(`Loaded project: ${doc.projectName}`, "success");
+          await loadProjectFromFile(file);
           return;
         }
 
         const url = URL.createObjectURL(file);
-        let result;
+        try {
+          let result;
+          if (ext === "fbx") {
+            result = await backend.loadFBX(url);
+          } else if (ext === "obj") {
+            result = await backend.loadOBJ(url);
+          } else {
+            result = await backend.loadGLTF(url);
+          }
 
-        if (ext === "fbx") {
-          result = await backend.loadFBX(url);
-        } else if (ext === "obj") {
-          result = await backend.loadOBJ(url);
-        } else {
-          result = await backend.loadGLTF(url);
-        }
-
-        result.nodeMap.forEach((info) => {
-          addSceneNode({
-            name: info.name,
-            type: info.type === "Mesh" || info.type === "SkinnedMesh" ? "mesh" : "group",
-            runtimeObjectUuid: info.uuid,
-            mesh:
-              info.type === "Mesh" || info.type === "SkinnedMesh"
-                ? { geometryType: "imported" }
-                : undefined,
+          result.nodeMap.forEach((info) => {
+            addSceneNode({
+              name: info.name,
+              type:
+                info.type === "Mesh" || info.type === "SkinnedMesh"
+                  ? "mesh"
+                  : "group",
+              runtimeObjectUuid: info.uuid,
+              mesh:
+                info.type === "Mesh" || info.type === "SkinnedMesh"
+                  ? { geometryType: "imported" }
+                  : undefined,
+            });
           });
-        });
 
-        backend.frameBounds(result.rootObjectUuid);
-        showToast(`Imported ${file.name}`, "success");
+          backend.frameBounds(result.rootObjectUuid);
+          showToast(`Imported ${file.name}`, "success");
+        } finally {
+          URL.revokeObjectURL(url);
+        }
       } catch (err) {
         console.error(`Failed to import ${ext}:`, err);
         showToast(`Failed to import ${file.name}`, "error");
@@ -487,7 +1286,7 @@ export const Viewport: React.FC = () => {
 
     window.addEventListener("editor:import-file", handleImport);
     return () => window.removeEventListener("editor:import-file", handleImport);
-  }, [addSceneNode]);
+  }, [addSceneNode, loadProjectFromFile]);
 
   // ── Handle add primitive event ──
   useEffect(() => {
@@ -687,6 +1486,162 @@ export const Viewport: React.FC = () => {
     };
   }, [addSceneNode, selectNode]);
 
+  // ── Poly Edit Mode + Operations (Extrude / Bevel) ──
+  useEffect(() => {
+    const persistEditedGeometry = (nodeId: NodeId, runtimeUuid: string): boolean => {
+      if (!backend) return false;
+      const geometryData = backend.getMeshGeometryData(runtimeUuid);
+      if (!geometryData) return false;
+
+      const state = useEditorStore.getState();
+      const currentNode = state.document.nodes[nodeId];
+      if (!currentNode || currentNode.type !== "mesh" || !currentNode.mesh) {
+        return false;
+      }
+      if (currentNode.runtimeObjectUuid !== runtimeUuid) {
+        return false;
+      }
+
+      const nextDoc = structuredClone(state.document);
+      const nextNode = nextDoc.nodes[nodeId];
+      if (!nextNode || nextNode.type !== "mesh" || !nextNode.mesh) return false;
+      nextNode.mesh = {
+        ...nextNode.mesh,
+        customGeometry: geometryData,
+      };
+      state.updateDocument(nextDoc);
+      return true;
+    };
+
+    const getActiveEditableNode = () => {
+      const state = useEditorStore.getState();
+      const nodeId = state.selectedNodeId;
+      if (!nodeId) return null;
+      const node = state.document.nodes[nodeId];
+      if (!node || node.type !== "mesh" || !node.mesh || !node.runtimeObjectUuid) {
+        return null;
+      }
+      return {
+        nodeId,
+        runtimeUuid: node.runtimeObjectUuid,
+        selection: state.meshEditSelection,
+      };
+    };
+
+    const applyMeshCommand = (
+      label: string,
+      mutate: (runtimeUuid: string, faceIndex: number, amount: number) => boolean,
+      amount: number
+    ) => {
+      if (!backend) return;
+      const active = getActiveEditableNode();
+      if (!active) {
+        showToast("Select a mesh first", "warning");
+        return;
+      }
+      if (useEditorStore.getState().meshEditMode === "object") {
+        showToast("Enable Vertex/Edge/Face mode first", "info");
+        return;
+      }
+      const faceIndex = active.selection?.faceIndex;
+      if (faceIndex === null || faceIndex === undefined || faceIndex < 0) {
+        showToast("Pick a mesh component first", "info");
+        return;
+      }
+
+      backend.ensureMeshEditable(active.runtimeUuid);
+
+      const before = backend.getMeshGeometryData(active.runtimeUuid);
+      if (!before) {
+        showToast("Mesh geometry is not editable", "error");
+        return;
+      }
+
+      const ok = mutate(active.runtimeUuid, faceIndex, amount);
+      if (!ok) {
+        showToast("Operation failed on selected component", "error");
+        return;
+      }
+
+      const after = backend.getMeshGeometryData(active.runtimeUuid);
+      if (!after) {
+        backend.setMeshGeometryData(active.runtimeUuid, before);
+        showToast("Could not capture mesh edit result", "error");
+        return;
+      }
+
+      persistEditedGeometry(active.nodeId, active.runtimeUuid);
+      if (active.selection) {
+        backend.highlightMeshComponent(active.runtimeUuid, active.selection);
+      }
+
+      let skipInitialExecute = true;
+      commandStack.execute({
+        label,
+        execute: () => {
+          if (skipInitialExecute) {
+            skipInitialExecute = false;
+            return;
+          }
+          if (!backend) return;
+          backend.setMeshGeometryData(active.runtimeUuid, after);
+          persistEditedGeometry(active.nodeId, active.runtimeUuid);
+          const nextSelection = useEditorStore.getState().meshEditSelection;
+          if (nextSelection) {
+            backend.highlightMeshComponent(active.runtimeUuid, nextSelection);
+          }
+        },
+        undo: () => {
+          if (!backend) return;
+          backend.setMeshGeometryData(active.runtimeUuid, before);
+          persistEditedGeometry(active.nodeId, active.runtimeUuid);
+          const nextSelection = useEditorStore.getState().meshEditSelection;
+          if (nextSelection) {
+            backend.highlightMeshComponent(active.runtimeUuid, nextSelection);
+          }
+        },
+      });
+      useEditorStore.getState().refreshUndoState();
+    };
+
+    const handleSetMeshEditMode = (e: Event) => {
+      const mode = (e as CustomEvent).detail?.mode as
+        | "object"
+        | "vertex"
+        | "edge"
+        | "face"
+        | undefined;
+      if (!mode) return;
+      setMeshEditMode(mode);
+      clearMeshEditSelection();
+      backend?.clearMeshEditHighlight();
+    };
+
+    const handleExtrude = (e: Event) => {
+      const distance = Number((e as CustomEvent).detail?.distance ?? 0.2);
+      applyMeshCommand("Extrude Face", (runtimeUuid, faceIndex, d) => {
+        return backend ? backend.extrudeMeshFace(runtimeUuid, faceIndex, d) : false;
+      }, distance);
+    };
+
+    const handleBevel = (e: Event) => {
+      const amount = Number((e as CustomEvent).detail?.amount ?? 0.08);
+      applyMeshCommand("Bevel Face", (runtimeUuid, faceIndex, a) => {
+        return backend ? backend.bevelMeshFace(runtimeUuid, faceIndex, a) : false;
+      }, amount);
+    };
+
+    window.addEventListener("editor:set-mesh-edit-mode", handleSetMeshEditMode);
+    window.addEventListener("editor:mesh-extrude", handleExtrude);
+    window.addEventListener("editor:mesh-bevel", handleBevel);
+
+    return () => {
+      window.removeEventListener("editor:set-mesh-edit-mode", handleSetMeshEditMode);
+      window.removeEventListener("editor:mesh-extrude", handleExtrude);
+      window.removeEventListener("editor:mesh-bevel", handleBevel);
+    };
+  }, [clearMeshEditSelection, setMeshEditMode]);
+
   // ── Handle transform updates from Inspector ──
   useEffect(() => {
     const handleUpdateTransform = (e: Event) => {
@@ -751,6 +1706,34 @@ export const Viewport: React.FC = () => {
       }
     }
   }, [document]);
+
+  // Sync per-node visibility from document state to runtime objects.
+  useEffect(() => {
+    if (!backend) return;
+
+    const previous = visibilitySyncRef.current;
+    const next = new Map<NodeId, { visible: boolean; runtimeObjectUuid?: string }>();
+
+    for (const node of Object.values(document.nodes)) {
+      const runtimeObjectUuid = node.runtimeObjectUuid;
+      const previousState = previous.get(node.id);
+      const changed =
+        !previousState ||
+        previousState.visible !== node.visible ||
+        previousState.runtimeObjectUuid !== runtimeObjectUuid;
+
+      if (changed && runtimeObjectUuid) {
+        backend.setObjectVisibility(runtimeObjectUuid, node.visible);
+      }
+
+      next.set(node.id, {
+        visible: node.visible,
+        runtimeObjectUuid,
+      });
+    }
+
+    visibilitySyncRef.current = next;
+  }, [document.nodes]);
 
   // ── Add Particle Emitter ──
   useEffect(() => {
@@ -954,7 +1937,7 @@ export const Viewport: React.FC = () => {
     const handleApplyTexture = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail?.uuid || !detail?.mapType || !backend) return;
-      backend.applyTexture(detail.uuid, detail.mapType, detail.url);
+      backend.applyTexture(detail.uuid, detail.mapType, detail.url, detail.fileName);
     };
 
     window.addEventListener("editor:get-material", handleGetMaterial);
@@ -1188,6 +2171,13 @@ export const Viewport: React.FC = () => {
         onDoubleClick={handleCanvasDoubleClick}
         onMouseMove={handleCanvasMouseMove}
       />
+      <input
+        ref={projectFileInputRef}
+        type="file"
+        accept=".multiview.json,.json"
+        className="viewport-project-file-input"
+        onChange={handleProjectFileInputChange}
+      />
 
       {/* Stats overlay */}
       {showStats && stats && (
@@ -1218,19 +2208,209 @@ export const Viewport: React.FC = () => {
         </div>
       )}
 
-      {/* Intro Screen (empty scene) */}
-      {Object.keys(document.nodes).length === 0 && (
-        <div className="viewport-intro">
-          <div className="viewport-intro-content">
-            <img
-              src="/assets/Logo.png"
-              alt="MultiVIEW"
-              className="viewport-intro-logo"
-            />
-            <div className="viewport-intro-subtitle">
-              Import a 3D model or add a primitive to begin
+      {isStartupIntroOpen && (
+        <div
+          className="viewport-startup-overlay"
+          onMouseDown={dismissStartupIntro}
+          role="presentation"
+        >
+          <section
+            className="viewport-startup-card"
+            role="dialog"
+            aria-modal="false"
+            aria-label="MultiView intro and updates"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <header className="viewport-startup-header">
+              <div className="viewport-startup-brand">
+                <img
+                  src="/assets/Logo.png"
+                  alt="MultiVIEW"
+                  className="viewport-startup-logo"
+                />
+                <div className="viewport-startup-heading">
+                  <h2>What is new</h2>
+                  <p>
+                    Version <strong>{appVersion}</strong> is ready. Pick the doc path
+                    that fits your workflow and start from there.
+                  </p>
+                </div>
+              </div>
+              <button
+                className="viewport-startup-close-btn"
+                onClick={dismissStartupIntro}
+              >
+                Start editing
+              </button>
+            </header>
+
+            <div className="viewport-startup-grid">
+              <section className="viewport-startup-panel">
+                <h3>Latest updates</h3>
+                <ul className="viewport-startup-list">
+                  {INTRO_RELEASE_NOTES.map((entry) => (
+                    <li key={entry.title} className="viewport-startup-list-item">
+                      <strong>{entry.title}</strong>
+                      <span>{entry.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="viewport-startup-panel">
+                <h3>What's coming next</h3>
+                <ul className="viewport-startup-list">
+                  {INTRO_COMING_NEXT.map((entry) => (
+                    <li key={entry.title} className="viewport-startup-list-item">
+                      <div className="viewport-startup-list-heading">
+                        <strong>{entry.title}</strong>
+                        <span className="viewport-startup-list-chip">{entry.stage}</span>
+                      </div>
+                      <span>{entry.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             </div>
-          </div>
+
+            <footer className="viewport-startup-footer">
+              Click anywhere in the viewport outside this window to close it.
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {isProjectLoaderOpen && (
+        <div
+          className="viewport-project-loader-overlay"
+          onMouseDown={closeProjectLoader}
+          role="presentation"
+        >
+          <section
+            className="viewport-project-loader-card"
+            role="dialog"
+            aria-modal="false"
+            aria-label="Load project"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <header className="viewport-project-loader-header">
+              <div className="viewport-project-loader-heading">
+                <h2>Load Project</h2>
+                <p>
+                  Open saved MultiView projects, known file locations, or load a
+                  JSON project from your computer.
+                </p>
+              </div>
+              <div className="viewport-project-loader-actions">
+                <button
+                  className="viewport-project-loader-btn"
+                  onClick={() => void refreshProjectLoaderData()}
+                  disabled={isProjectLoaderBusy}
+                >
+                  Refresh
+                </button>
+                <button
+                  className="viewport-project-loader-btn viewport-project-loader-btn-close"
+                  onClick={closeProjectLoader}
+                >
+                  Close
+                </button>
+              </div>
+            </header>
+
+            {projectLoaderError && (
+              <p className="viewport-project-loader-error">{projectLoaderError}</p>
+            )}
+
+            <section className="viewport-project-loader-section">
+              <div className="viewport-project-loader-section-title">
+                <h3>Saved in MultiView</h3>
+                <span>{savedProjects.length}</span>
+              </div>
+              {savedProjects.length > 0 ? (
+                <div className="viewport-project-loader-grid">
+                  {savedProjects.map((project) => (
+                    <button
+                      key={project.key}
+                      className="viewport-project-loader-tile"
+                      onClick={() => void handleLoadSavedProject(project)}
+                    >
+                      <div className="viewport-project-loader-preview">
+                        {project.previewDataUrl ? (
+                          <img
+                            src={project.previewDataUrl}
+                            alt={`${project.name} preview`}
+                          />
+                        ) : (
+                          <span>No preview</span>
+                        )}
+                      </div>
+                      <div className="viewport-project-loader-meta">
+                        <strong>{project.name || "Untitled project"}</strong>
+                        <span>Saved {formatDateTime(project.savedAt)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="viewport-project-loader-empty">
+                  No internal saved projects yet. Use Save to create your first slot.
+                </p>
+              )}
+            </section>
+
+            {supportsFileSystemAccess ? (
+              <section className="viewport-project-loader-section">
+                <div className="viewport-project-loader-section-title">
+                  <h3>Known files</h3>
+                  <span>{knownProjectFiles.length}</span>
+                </div>
+                {knownProjectFiles.length > 0 ? (
+                  <div className="viewport-project-loader-grid">
+                    {knownProjectFiles.map((fileItem) => (
+                      <button
+                        key={fileItem.id}
+                        className="viewport-project-loader-tile"
+                        onClick={() => void handleLoadKnownProjectFile(fileItem)}
+                      >
+                        <div className="viewport-project-loader-preview">
+                          {fileItem.previewDataUrl ? (
+                            <img
+                              src={fileItem.previewDataUrl}
+                              alt={`${fileItem.name} preview`}
+                            />
+                          ) : (
+                            <span>No preview</span>
+                          )}
+                        </div>
+                        <div className="viewport-project-loader-meta">
+                          <strong>{fileItem.name}</strong>
+                          <span>Opened {formatDateTime(fileItem.lastOpenedAt)}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="viewport-project-loader-empty">
+                    No known files yet. Load one from your computer to add it here.
+                  </p>
+                )}
+              </section>
+            ) : (
+              <p className="viewport-project-loader-empty">
+                Known file locations are not supported in this browser.
+              </p>
+            )}
+
+            <footer className="viewport-project-loader-footer">
+              <button
+                className="viewport-project-loader-btn viewport-project-loader-btn-primary"
+                onClick={() => void handleLoadProjectFromComputer()}
+              >
+                Load from computer
+              </button>
+            </footer>
+          </section>
         </div>
       )}
 

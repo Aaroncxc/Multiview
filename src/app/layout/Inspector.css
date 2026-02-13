@@ -14,30 +14,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3)
+    calc(var(--space-3) + 34px);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-}
-
-.inspector-back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--text-secondary);
-  font-size: 16px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background var(--ease-micro), color var(--ease-micro);
-}
-
-.inspector-back-btn:hover {
-  background: var(--accent-muted);
-  color: var(--accent);
 }
 
 .inspector-title {
@@ -91,18 +71,21 @@
 
 .inspector-section-btn {
   font: var(--text-caption);
-  color: var(--accent);
-  background: var(--accent-muted);
-  border: none;
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   padding: 2px 8px;
   cursor: pointer;
-  transition: background var(--ease-micro);
+  transition: background var(--ease-micro), color var(--ease-micro),
+    border-color var(--ease-micro);
 }
 
 .inspector-section-btn:hover {
-  background: var(--accent);
-  color: var(--text-inverse);
+  background: var(--control-bg-hover);
+  color: var(--accent-hover);
+  border-color: var(--accent-border-strong);
 }
 
 /* ── Node Info ── */
@@ -251,22 +234,26 @@
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   font: var(--text-body);
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: none;
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   text-align: left;
-  transition: background var(--ease-micro), color var(--ease-micro);
+  transition: background var(--ease-micro), color var(--ease-micro),
+    border-color var(--ease-micro);
 }
 
 .inspector-dropdown-btn:hover {
-  background: var(--bg-panel-hover);
-  color: var(--accent);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--accent-border-strong);
 }
 
 .inspector-dropdown-btn[aria-expanded="true"] {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-active);
+  color: var(--accent-text);
+  border-color: var(--accent-border-strong);
 }
 
 .inspector-dropdown-btn:focus-visible {
@@ -324,23 +311,26 @@
 
 .material-preset-tab {
   font: var(--text-caption);
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   white-space: nowrap;
   transition: background var(--ease-micro), color var(--ease-micro);
 }
 
 .material-preset-tab:hover {
-  background: var(--bg-panel-hover);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
 }
 
 .material-preset-tab.active {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-active);
+  color: var(--accent-text);
+  border-color: var(--accent-border-strong);
 }
 
 .material-preset-grid {
@@ -355,14 +345,16 @@
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
-  transition: background var(--ease-micro);
+  transition: background var(--ease-micro), border-color var(--ease-micro);
 }
 
 .material-preset-item:hover {
-  background: var(--accent-muted);
+  background: var(--control-bg-hover);
+  border-color: var(--accent-border-strong);
 }
 
 .material-preset-swatch {
@@ -393,28 +385,80 @@
 .texture-map-btn {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  gap: 3px;
+  min-height: 82px;
   padding: var(--space-2) var(--space-1);
-  background: var(--bg-input);
-  border: 1px dashed var(--border-subtle);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   transition: border-color var(--ease-micro), background var(--ease-micro);
 }
 
 .texture-map-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-muted);
+  border-color: var(--accent-border-strong);
+  background: var(--control-bg-hover);
+}
+
+.texture-map-btn.has-texture {
+  border-color: var(--accent-border-strong);
+  background: color-mix(in srgb, var(--control-bg) 86%, var(--accent) 14%);
+}
+
+.texture-map-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.texture-map-preview {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px dashed var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.texture-map-preview.has-image {
+  border-style: solid;
+  border-color: var(--border-default);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .texture-map-icon {
-  font-size: 16px;
+  font: var(--text-caption);
+  color: var(--text-disabled);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.texture-map-status {
+  margin-left: auto;
+  font: var(--text-caption);
+  color: var(--text-disabled);
+}
+
+.texture-map-status.is-loaded {
+  color: var(--accent-text);
 }
 
 .texture-map-label {
   font: var(--text-caption);
   color: var(--text-secondary);
+}
+
+.texture-map-name {
+  font: var(--text-caption);
+  color: var(--control-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Delete Button ── */
@@ -441,9 +485,10 @@
   width: 100%;
   padding: 6px 8px;
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  color: var(--control-text);
+  box-shadow: var(--control-shadow);
   font-size: 12px;
   margin-bottom: 6px;
 }
@@ -457,9 +502,10 @@
   flex: 1;
   padding: 6px 4px;
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
+  box-shadow: var(--control-shadow);
   font-size: 11px;
   cursor: pointer;
   transition: background var(--ease-micro), color var(--ease-micro);
@@ -467,9 +513,26 @@
 }
 
 .modeling-btn:hover {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--control-bg-hover);
+  color: var(--accent-hover);
+  border-color: var(--accent-border-strong);
+}
+
+.modeling-btn.active {
+  background: var(--control-bg-active);
+  color: var(--accent-text);
+  border-color: var(--accent-border-strong);
+}
+
+.inspector-poly-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.inspector-poly-edit-row .modeling-btn {
+  min-width: 72px;
 }
 
 .inspector-hint {

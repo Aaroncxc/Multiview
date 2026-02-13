@@ -4,7 +4,7 @@
 //           camera buttons, orbit-only controls, info panel.
 // ============================================================
 
-import type { SceneDocument, SceneNode } from "../document/types";
+import type { SceneDocument, SceneNode, MeshGeometryData } from "../document/types";
 import type { ThreeBackend } from "../engine/threeBackend";
 import {
   mergeViewerExportOptions,
@@ -27,6 +27,7 @@ interface ViewerNodeData {
   visible: boolean;
   // Mesh
   geometryType?: string;
+  customGeometry?: MeshGeometryData;
   material?: Record<string, any>;
   text3d?: { content: string; size: number; depth: number; bevel: boolean };
   // Light
@@ -87,6 +88,9 @@ export function exportViewerHTML(
 
     if (node.type === "mesh" && node.mesh) {
       vn.geometryType = node.mesh.geometryType;
+      if (node.mesh.customGeometry) {
+        vn.customGeometry = node.mesh.customGeometry;
+      }
       if (node.runtimeObjectUuid) {
         const matProps = backend.getMaterialProps(node.runtimeObjectUuid);
         if (matProps) vn.material = matProps;
@@ -416,6 +420,25 @@ function createGeometry(type){
   }
 }
 
+function createCustomGeometry(data){
+  if(!data||!Array.isArray(data.position))return null;
+  if(data.position.length<9||data.position.length%9!==0)return null;
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(data.position,3));
+  if(Array.isArray(data.normal)&&data.normal.length===data.position.length){
+    geo.setAttribute('normal',new THREE.Float32BufferAttribute(data.normal,3));
+  }else{
+    geo.computeVertexNormals();
+  }
+  const vertexCount=data.position.length/3;
+  if(Array.isArray(data.uv)&&data.uv.length===vertexCount*2){
+    geo.setAttribute('uv',new THREE.Float32BufferAttribute(data.uv,2));
+  }
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
 function applyMaterial(mat,props){
   if(!props)return;
   if(props.color)mat.color.set(props.color);
@@ -437,7 +460,9 @@ async function buildScene(){
   for(const n of PACK.nodes){
     if(n.type==='mesh'&&n.geometryType){
       let geometry;
-      if(n.geometryType==='text3d'&&n.text3d){
+      if(n.customGeometry){
+        geometry=createCustomGeometry(n.customGeometry);
+      } else if(n.geometryType==='text3d'&&n.text3d){
         if(!loadedFont){
           loadedFont=await fontLoader.loadAsync('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/fonts/helvetiker_regular.typeface.json');
         }
@@ -448,6 +473,7 @@ async function buildScene(){
       } else {
         geometry=createGeometry(n.geometryType);
       }
+      if(!geometry)continue;
       const mat=new THREE.MeshStandardMaterial({color:0xcccccc,roughness:.5});
       applyMaterial(mat,n.material);
       const mesh=new THREE.Mesh(geometry,mat);

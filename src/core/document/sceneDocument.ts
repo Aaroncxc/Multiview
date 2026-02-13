@@ -175,7 +175,7 @@ export function assignMaterial(
 
 // ── Helpers ──
 
-function isDescendantOf(
+export function isDescendantOf(
   doc: SceneDocument,
   candidateId: NodeId,
   ancestorId: NodeId
@@ -186,6 +186,25 @@ function isDescendantOf(
     current = current.parentId ? doc.nodes[current.parentId] : undefined;
   }
   return false;
+}
+
+export function collectSubtreeIds(
+  doc: SceneDocument,
+  rootId: NodeId
+): NodeId[] {
+  const result: NodeId[] = [];
+
+  const walk = (nodeId: NodeId) => {
+    const node = doc.nodes[nodeId];
+    if (!node) return;
+    result.push(nodeId);
+    for (const childId of node.children) {
+      walk(childId);
+    }
+  };
+
+  walk(rootId);
+  return result;
 }
 
 export function getNodeDepth(doc: SceneDocument, nodeId: NodeId): number {

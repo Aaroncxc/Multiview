@@ -25,13 +25,19 @@ export async function rebuildSceneFromDocument(
 
     if (node.type === "mesh" && node.mesh) {
       const geomType = node.mesh.geometryType;
+      const customGeometry = node.mesh.customGeometry;
 
-      if (geomType === "text3d") {
+      if (customGeometry) {
+        const result = backend.addCustomMesh(node.name, customGeometry);
+        if (result) {
+          uuid = result.uuid;
+        }
+      } else if (geomType === "text3d") {
         const text = node.mesh.text3dContent ?? "Hello";
         const size = node.mesh.text3dSize ?? 0.5;
         const depth = node.mesh.text3dDepth ?? 0.2;
         const bevel = node.mesh.text3dBevel ?? true;
-        const result = await backend.addText3D(node.name, text, {
+        const result = await backend.addText3D(text, node.name, {
           size,
           depth,
           bevel,

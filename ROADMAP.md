@@ -51,10 +51,10 @@ Sketchfab ist der Referenz-Viewer für Portfolio-Embeds. Diese Features sollen w
 | 1.6 | OrbitControls + Gizmo | ✅ |
 | 1.7 | glTF/GLB Import | ✅ |
 | 1.8 | Pivot Point Editing | ⬜ |
-| 1.9 | Copy/Paste (Ctrl+C/V) | ⬜ |
+| 1.9 | Copy/Paste (Ctrl+C/V) | ✅ |
 | 1.10 | Erweiterte Snap-Ziele (Vertex, Surface) | ⬜ |
 | 1.11 | Multi-Selection | ⬜ |
-| 1.12 | Gruppen / Hierarchie-Tools | ⬜ |
+| 1.12 | Gruppen / Hierarchie-Tools | ✅ |
 
 ---
 
@@ -144,6 +144,21 @@ Sketchfab ist der Referenz-Viewer für Portfolio-Embeds. Diese Features sollen w
 | 6.11 | Löcher in Shapes | ⬜ |
 | 6.12 | Parametrische Geometrie (Radius, Segments) | ⬜ |
 
+### 6P: Poly Editing (MVP → Advanced)
+
+| Sub-Phase | Aufgabe | Status |
+|-----------|---------|--------|
+| 6P.1 | Edit-Mode (Vertex / Edge / Face) | ⬜ |
+| 6P.2 | Selektion: Click, Box, Loop, Ring | ⬜ |
+| 6P.3 | Extrude (Face/Edge), Inset | ⬜ |
+| 6P.4 | Bevel (Edge/Vertex) | ⬜ |
+| 6P.5 | Loop Cut / Knife (Basis) | ⬜ |
+| 6P.6 | Merge / Weld / Dissolve | ⬜ |
+| 6P.7 | Normals + Auto Smooth | ⬜ |
+| 6P.8 | Mirror/Symmetry Modeling | ⬜ |
+| 6P.9 | Topology Helpers (Bridge/Fill/Grid Fill) | ⬜ |
+| 6P.10 | UV-Basis (Auto Unwrap + Transform) | ⬜ |
+
 ---
 
 ## Phase 7: Physics & Particles ✅
@@ -181,13 +196,12 @@ Sketchfab ist der Referenz-Viewer für Portfolio-Embeds. Diese Features sollen w
 | 8A.6 | Wireframe-Toggle | ✅ |
 | 8A.7 | Info-Panel (Polycount, etc.) | ✅ |
 | 8A.8 | **Autostart / Autospin Option** | ✅ |
-| 8A.9 | **Loading-Screen Customization** | ⬜ |
+| 8A.9 | **Loading-Screen Customization** | ✅ |
 | 8A.10 | **Orbit/Pan/Zoom Limits** | ✅ |
-| 8A.11 | **Responsive Embed (aspect-ratio)** | ⬜ |
-| 8A.12 | **Custom CSS/Theme** | ⬜ |
-| 8A.13 | **Beschreibung / Titel** | ⬜ |
-| 8A.14 | **Screenshot-Vorschau** | ⬜ |
-
+| 8A.11 | **Responsive Embed (aspect-ratio)** | ✅ |
+| 8A.12 | **Custom CSS/Theme** | ✅ |
+| 8A.13 | **Beschreibung / Titel** | ✅ |
+| 8A.14 | **Screenshot-Vorschau** | ✅ |
 ### 8B: File Exports
 
 | Sub-Phase | Aufgabe | Status |
@@ -256,10 +270,12 @@ Sketchfab ist der Referenz-Viewer für Portfolio-Embeds. Diese Features sollen w
 3. ~~**8A.8 / 8A.10** — Viewer-Optionen (Autospin, Limits)~~ ✅
 4. ~~**8B.1** — glTF/GLB Export~~ ✅
 5. ~~**8B.3** — Screenshot Export~~ ✅
-6. **8A.9–8A.14** — Loading-Screen, Custom CSS, Beschreibung, etc.
-7. **1.9** — Copy/Paste
-8. **1.12** — Gruppen
+6. ~~**8A.9–8A.14** — Loading-Screen, Custom CSS, Beschreibung, etc.~~ ✅
+7. ~~**1.9** — Copy/Paste (in Arbeit)~~ ✅
+8. ~~**1.12** — Gruppen~~ ✅
+9. **6P.1–6P.4** — Poly Editing MVP (Edit-Mode, Selection, Extrude, Bevel)
+10. **8C.1** — Web Component (`<multiview-viewer>`)
 
 ---
 
-*Letzte Aktualisierung: Februar 2025*
+*Letzte Aktualisierung: Februar 2026*

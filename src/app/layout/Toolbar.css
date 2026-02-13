@@ -1,139 +1,199 @@
 /* ============================================================
    Toolbar Styles
-   Phase 1: + Dropdown, Snap, Undo/Redo, Save
-   Apple HIG: Translucent, contextually relevant controls
+   Floating and detached from viewport edges
    ============================================================ */
 
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--toolbar-height);
-  padding: 0 var(--space-3);
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-subtle);
+  min-height: var(--toolbar-height);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-panel-floating);
+  border: 1px solid var(--border-floating);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(14px);
   z-index: var(--z-toolbar);
   gap: var(--space-2);
   flex-shrink: 0;
+}
+
+.toolbar-compact {
+  min-height: 52px;
+  padding: var(--space-2);
+  border-radius: 20px;
+}
+
+.toolbar-compact .toolbar-left,
+.toolbar-compact .toolbar-right {
+  display: none;
+}
+
+.toolbar-compact .toolbar-center {
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 6px;
+}
+
+.toolbar-compact .toolbar-btn {
+  min-height: 34px;
+  padding: 5px 11px;
+  border-radius: 11px;
+}
+
+.toolbar-compact .toolbar-btn-compact {
+  padding-inline: 11px;
+}
+
+.toolbar-compact .toolbar-btn-theme {
+  min-width: 32px;
+  padding-inline: 7px;
+}
+
+.toolbar-compact .toolbar-divider {
+  height: 18px;
 }
 
 .toolbar-section {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
 }
 
 .toolbar-left {
-  min-width: 180px;
+  flex: 0 1 auto;
 }
 
 .toolbar-center {
   flex: 1;
   justify-content: center;
+  min-width: 0;
+  overflow: visible;
 }
 
 .toolbar-right {
-  min-width: 180px;
+  flex: 0 1 auto;
   justify-content: flex-end;
 }
 
-/* ── Project Name Input ── */
-
 .toolbar-project-input {
   font: var(--text-toolbar);
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid transparent;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
-  max-width: 140px;
-  transition: border-color var(--ease-micro), color var(--ease-micro);
+  max-width: 168px;
+  transition: border-color var(--ease-micro), color var(--ease-micro),
+    background var(--ease-micro);
 }
 
 .toolbar-project-input:hover {
-  border-color: var(--border-subtle);
+  border-color: var(--border-default);
   color: var(--text-primary);
+  background: var(--bg-surface);
 }
 
 .toolbar-project-input:focus {
   border-color: var(--accent);
   color: var(--text-primary);
+  background: var(--bg-surface);
   outline: none;
 }
-
-/* ── Toolbar Button ── */
 
 .toolbar-btn {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  padding: 5px 10px;
   min-height: var(--min-target-size);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
+  border: 1px solid var(--control-border);
   font: var(--text-toolbar);
-  color: var(--text-secondary);
-  background: transparent;
-  transition: background var(--ease-micro), color var(--ease-micro);
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  box-shadow: var(--control-shadow);
+  transition: background var(--ease-micro), color var(--ease-micro),
+    border-color var(--ease-micro);
   cursor: pointer;
-  border: none;
   white-space: nowrap;
 }
 
 .toolbar-btn:hover:not(:disabled) {
-  background: var(--bg-panel-hover);
-  color: var(--text-primary);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--control-border);
 }
 
 .toolbar-btn.active {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-active);
+  border-color: var(--accent-border-strong);
+  color: var(--accent-text);
 }
 
 .toolbar-btn:disabled {
-  opacity: 0.35;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+.toolbar-btn-compact {
+  padding-inline: 9px;
+}
+
+.toolbar-btn-theme {
+  min-width: 34px;
+  justify-content: center;
+  padding-inline: 8px;
+  gap: 0;
+}
+
+.toolbar-btn-theme .toolbar-btn-icon {
+  min-width: auto;
+}
+
 .toolbar-btn-accent {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .toolbar-btn-accent:hover {
-  background: var(--accent-muted);
   color: var(--accent-hover);
+  border-color: var(--accent-border-strong);
 }
 
 .toolbar-btn-icon {
-  font-size: 16px;
-  width: 20px;
+  font-size: 11px;
+  line-height: 1;
+  min-width: 14px;
   text-align: center;
   flex-shrink: 0;
+  letter-spacing: 0.04em;
 }
 
 .toolbar-btn-label {
   font: var(--text-toolbar);
 }
 
-/* ── Divider ── */
+.toolbar-btn-theme .toolbar-btn-label {
+  display: none;
+}
 
 .toolbar-divider {
   width: 1px;
-  height: 20px;
-  background: var(--border-subtle);
-  margin: 0 var(--space-2);
+  height: 16px;
+  background: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+  margin: 0 var(--space-1);
   flex-shrink: 0;
 }
-
-/* ── Hidden file input ── */
 
 .toolbar-file-input {
   display: none;
 }
 
-/* ── Dropdown Wrapper ── */
-
 .toolbar-dropdown-wrapper {
   position: relative;
+  z-index: calc(var(--z-dropdown) + 2);
 }
 
 .toolbar-dropdown-backdrop {
@@ -144,20 +204,34 @@
 
 .toolbar-dropdown {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  background: var(--bg-panel-floating);
+  border: 1px solid var(--border-floating);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-dropdown);
   padding: var(--space-1);
   z-index: calc(var(--z-dropdown) + 1);
-  min-width: 140px;
+  min-width: 160px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px;
-  animation: dropdown-in 150ms cubic-bezier(0.2, 0.8, 0.4, 1);
+  animation: toolbar-dropdown-in 150ms cubic-bezier(0.2, 0.8, 0.4, 1);
+}
+
+.toolbar-dropdown-compact-actions {
+  left: auto;
+  right: 0;
+  transform: none;
+  grid-template-columns: 1fr;
+  min-width: 176px;
+}
+
+.toolbar-dropdown-compact-actions .toolbar-dropdown-item.active {
+  border-color: var(--accent-border-strong);
+  color: var(--accent-text);
+  background: var(--control-bg-active);
 }
 
 .toolbar-dropdown-item {
@@ -167,27 +241,37 @@
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   font: var(--text-body);
-  color: var(--text-primary);
-  background: transparent;
-  border: none;
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
-  transition: background var(--ease-micro);
+  transition: background var(--ease-micro), color var(--ease-micro);
   white-space: nowrap;
 }
 
 .toolbar-dropdown-item:hover {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--accent-border-strong);
 }
 
 .toolbar-dropdown-icon {
-  font-size: 16px;
-  width: 20px;
+  font-size: 11px;
+  width: 22px;
   text-align: center;
   flex-shrink: 0;
+  letter-spacing: 0.04em;
 }
 
-@keyframes dropdown-in {
+.toolbar-dropdown-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+  margin: 2px 0;
+  grid-column: 1 / -1;
+}
+
+@keyframes toolbar-dropdown-in {
   from {
     opacity: 0;
     transform: translateX(-50%) translateY(-4px) scale(0.97);
@@ -198,10 +282,45 @@
   }
 }
 
-.toolbar-dropdown-divider {
-  height: 1px;
-  background: var(--border-subtle);
-  margin: 2px 0;
+@media (max-width: 1360px) {
+  .toolbar {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .toolbar-left,
+  .toolbar-center,
+  .toolbar-right {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-right {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 860px) {
+  .toolbar {
+    padding: var(--space-2);
+  }
+
+  .toolbar-btn-label {
+    font-size: 11px;
+  }
+
+  .toolbar-project-input {
+    max-width: 120px;
+  }
+
+  .toolbar-divider {
+    display: none;
+  }
+
+  .toolbar-compact .toolbar-divider {
+    display: block;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

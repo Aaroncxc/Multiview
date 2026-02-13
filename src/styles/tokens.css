@@ -5,30 +5,47 @@
 
 :root {
   /* ── Color: Backgrounds ── */
-  --bg-app: #1a1a1a;
-  --bg-panel: #242424;
-  --bg-panel-hover: #2a2a2a;
-  --bg-surface: #2e2e2e;
-  --bg-input: #1e1e1e;
-  --bg-viewport: #1c1c1c;
+  --bg-app: #d7d4ce;
+  --bg-panel: #ebe8e2;
+  --bg-panel-hover: #dfdcd5;
+  --bg-surface: #f4f1eb;
+  --bg-input: #f0ece5;
+  --bg-viewport: #171716;
+  --bg-panel-floating: rgba(235, 232, 226, 0.88);
 
   /* ── Color: Borders ── */
-  --border-subtle: #333333;
-  --border-default: #444444;
+  --border-subtle: #c4c0b8;
+  --border-default: #a9a49b;
   --border-focus: var(--accent);
+  --border-floating: rgba(120, 114, 103, 0.22);
 
   /* ── Color: Text ── */
-  --text-primary: #f0f0f0;
-  --text-secondary: #999999;
-  --text-disabled: #555555;
-  --text-inverse: #1a1a1a;
+  --text-primary: #262421;
+  --text-secondary: #5e5a53;
+  --text-disabled: #8a857d;
+  --text-inverse: #f6f2ea;
 
   /* ── Color: Accent ── */
-  --accent: #4a9eff;
-  --accent-hover: #5aafff;
-  --accent-active: #3a8eef;
-  --accent-muted: rgba(74, 158, 255, 0.13);
-  --accent-text: #4a9eff;
+  --accent: #f45c1e;
+  --accent-hover: #ff6b2f;
+  --accent-active: #d94d15;
+  --accent-muted: rgba(244, 92, 30, 0.16);
+  --accent-text: #f45c1e;
+  --accent-soft-bg: rgba(244, 92, 30, 0.1);
+  --accent-border-strong: rgba(244, 92, 30, 0.5);
+
+  /* dark controls on light chassis */
+  --control-bg: #1f2023;
+  --control-bg-hover: #2a2c31;
+  --control-bg-active: #343840;
+  --control-border: #4b4f57;
+  --control-text: #f2efe8;
+  --control-text-muted: #c8c2b6;
+  --control-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+
+  /* compatibility aliases */
+  --bg-tertiary: var(--control-bg);
+  --text-tertiary: #7b756a;
 
   /* ── Color: Semantic ── */
   --color-success: #34c759;
@@ -73,11 +90,13 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-xl: 18px;
 
   /* ── Shadows ── */
   --shadow-panel: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-floating: 0 16px 38px rgba(0, 0, 0, 0.34);
 
   /* ── Motion ── */
   --ease-micro: 150ms cubic-bezier(0.2, 0.8, 0.4, 1);
@@ -92,6 +111,48 @@
   --z-dropdown: 30;
   --z-modal: 40;
   --z-toast: 50;
+}
+
+:root[data-theme="dark"] {
+  /* warm dark chassis */
+  --bg-app: #161615;
+  --bg-panel: #222221;
+  --bg-panel-hover: #2b2a28;
+  --bg-surface: #31302d;
+  --bg-input: #1c1c1b;
+  --bg-viewport: #171716;
+  --bg-panel-floating: rgba(20, 20, 19, 0.88);
+
+  --border-subtle: #3a3834;
+  --border-default: #4b4843;
+  --border-floating: rgba(230, 224, 213, 0.12);
+
+  --text-primary: #f1eee8;
+  --text-secondary: #ada69a;
+  --text-disabled: #686157;
+  --text-inverse: #151412;
+
+  --accent: #e57a2f;
+  --accent-hover: #ee8a44;
+  --accent-active: #cc6a24;
+  --accent-muted: rgba(229, 122, 47, 0.18);
+  --accent-text: #f2a165;
+  --accent-soft-bg: rgba(229, 122, 47, 0.1);
+  --accent-border-strong: rgba(229, 122, 47, 0.55);
+
+  /* controls blend into dark chassis but stay distinct */
+  --control-bg: #242528;
+  --control-bg-hover: #2e3136;
+  --control-bg-active: #383c44;
+  --control-border: #50545d;
+  --control-text: #efeae0;
+  --control-text-muted: #bdb5a8;
+  --control-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+
+  --bg-tertiary: var(--control-bg);
+  --text-tertiary: #8e877a;
+
+  --shadow-floating: 0 16px 38px rgba(0, 0, 0, 0.5);
 }
 
 /* ── Reduced Motion ── */

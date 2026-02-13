@@ -62,6 +62,10 @@
 
 .scene-select {
   cursor: pointer;
+  background: var(--control-bg);
+  border-color: var(--control-border);
+  color: var(--control-text);
+  box-shadow: var(--control-shadow);
 }
 
 .scene-textarea {
@@ -111,18 +115,19 @@
 }
 
 .scene-viewer-preset-btn {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-input);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
   border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  color: var(--control-text);
+  box-shadow: var(--control-shadow);
   padding: 8px;
   text-align: left;
   transition: border-color var(--ease-micro), background var(--ease-micro);
 }
 
 .scene-viewer-preset-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-muted);
+  border-color: var(--accent-border-strong);
+  background: var(--control-bg-hover);
 }
 
 .scene-viewer-preset-btn strong {
@@ -133,7 +138,7 @@
 
 .scene-viewer-preset-btn small {
   font: var(--text-caption);
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
 }
 
 .scene-pill-row {
@@ -144,24 +149,26 @@
 }
 
 .scene-pill-btn {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-input);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
   border-radius: 999px;
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
   font: var(--text-caption);
+  box-shadow: var(--control-shadow);
   padding: 4px 10px;
   transition: border-color var(--ease-micro), background var(--ease-micro), color var(--ease-micro);
 }
 
 .scene-pill-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-border-strong);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
 }
 
 .scene-pill-btn.active {
-  border-color: var(--accent);
-  background: var(--accent-muted);
-  color: var(--accent);
+  border-color: var(--accent-border-strong);
+  background: var(--control-bg-active);
+  color: var(--accent-text);
 }
 
 .scene-action-row {
@@ -170,19 +177,20 @@
 }
 
 .scene-reset-btn {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-input);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
+  box-shadow: var(--control-shadow);
   padding: 6px 10px;
   font: var(--text-caption);
   transition: border-color var(--ease-micro), color var(--ease-micro), background var(--ease-micro);
 }
 
 .scene-reset-btn:hover {
-  border-color: var(--accent);
-  color: var(--text-primary);
-  background: var(--bg-panel-hover);
+  border-color: var(--accent-border-strong);
+  color: var(--control-text);
+  background: var(--control-bg-hover);
 }
 
 /* ── Toggles ── */
@@ -220,18 +228,31 @@
   align-items: center;
   gap: 2px;
   padding: var(--space-2);
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
   font: var(--text-caption);
-  color: var(--text-primary);
+  color: var(--control-text);
+  box-shadow: var(--control-shadow);
   transition: border-color var(--ease-micro), background var(--ease-micro);
 }
 
+.scene-icon {
+  font: var(--text-caption);
+  color: var(--control-text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .scene-light-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-muted);
+  border-color: var(--accent-border-strong);
+  background: var(--control-bg-hover);
+}
+
+.scene-light-btn:hover .scene-icon,
+.scene-camera-btn:hover .scene-icon {
+  color: var(--accent);
 }
 
 /* ── Camera Grid ── */
@@ -248,19 +269,20 @@
   align-items: center;
   gap: 2px;
   padding: var(--space-1) var(--space-2);
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
   font: var(--text-caption);
-  color: var(--text-secondary);
+  color: var(--control-text-muted);
+  box-shadow: var(--control-shadow);
   transition: border-color var(--ease-micro), background var(--ease-micro);
 }
 
 .scene-camera-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-muted);
-  color: var(--accent);
+  border-color: var(--accent-border-strong);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
 }
 
 /* ── HDRI Buttons ── */
@@ -269,27 +291,30 @@
   width: 100%;
   padding: var(--space-2);
   font: var(--text-body);
-  color: var(--accent);
-  background: var(--accent-muted);
-  border: 1px solid transparent;
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
-  transition: background var(--ease-micro);
+  transition: background var(--ease-micro), color var(--ease-micro),
+    border-color var(--ease-micro);
   margin-bottom: var(--space-1);
 }
 
 .scene-hdri-btn:hover {
-  background: var(--accent);
-  color: var(--text-inverse);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--accent-border-strong);
 }
 
 .scene-hdri-clear {
-  color: var(--text-secondary);
-  background: var(--bg-input);
-  border-color: var(--border-subtle);
+  color: var(--control-text-muted);
+  background: var(--control-bg);
+  border-color: var(--control-border);
 }
 
 .scene-hdri-clear:hover {
-  background: var(--bg-panel-hover);
-  color: var(--text-primary);
+  background: var(--control-bg-hover);
+  color: var(--control-text);
 }

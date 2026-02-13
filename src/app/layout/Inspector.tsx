@@ -441,6 +441,20 @@ const MaterialSection: React.FC = () => {
 
   if (!node || node.type !== "mesh") return null;
 
+  const textureSlots = [
+    { key: "map", label: "Albedo" },
+    { key: "normalMap", label: "Normal" },
+    { key: "roughnessMap", label: "Rough" },
+    { key: "metalnessMap", label: "Metal" },
+    { key: "emissiveMap", label: "Emissive" },
+  ] as const;
+
+  const textureMaps = (matProps.textureMaps ??
+    {}) as Record<
+    (typeof textureSlots)[number]["key"],
+    { url: string | null; name: string | null } | null
+  >;
+
   const updateMaterial = (key: string, value: any) => {
     const newProps = { ...matProps, [key]: value };
     setMatProps(newProps);
@@ -483,10 +497,25 @@ const MaterialSection: React.FC = () => {
       const url = URL.createObjectURL(file);
       window.dispatchEvent(
         new CustomEvent("editor:apply-texture", {
-          detail: { uuid: node.runtimeObjectUuid, mapType, url },
+          detail: { uuid: node.runtimeObjectUuid, mapType, url, fileName: file.name },
         })
       );
-      showToast(`Applied ${mapType} texture`, "success");
+
+      // Keep inspector UI immediately in sync without waiting for re-select.
+      setMatProps((prev) => {
+        const prevMaps = (prev.textureMaps ??
+          {}) as Record<string, { url: string | null; name: string | null } | null>;
+        return {
+          ...prev,
+          textureMaps: {
+            ...prevMaps,
+            [mapType]: { url, name: file.name },
+          },
+        };
+      });
+
+      const mapLabel = textureSlots.find((slot) => slot.key === mapType)?.label ?? mapType;
+      showToast(`${mapLabel} map updated`, "success");
     };
     input.click();
   };
@@ -707,23 +736,34 @@ const MaterialSection: React.FC = () => {
       <div className="inspector-subsection">
         <span className="inspector-subsection-label">Texture Maps</span>
         <div className="texture-map-grid">
-          {[
-            { key: "map", label: "Albedo" },
-            { key: "normalMap", label: "Normal" },
-            { key: "roughnessMap", label: "Rough" },
-            { key: "metalnessMap", label: "Metal" },
-            { key: "emissiveMap", label: "Emissive" },
-          ].map((m) => (
-            <button
-              key={m.key}
-              className="texture-map-btn"
-              onClick={() => handleTextureUpload(m.key)}
-              title={`Upload ${m.label} map`}
-            >
-              <span className="texture-map-icon">🖼</span>
-              <span className="texture-map-label">{m.label}</span>
-            </button>
-          ))}
+          {textureSlots.map((m) => {
+            const slot = textureMaps[m.key];
+            const hasTexture = !!slot?.url;
+            const fileName = slot?.name?.trim() || (hasTexture ? "Texture loaded" : "No image");
+
+            return (
+              <button
+                key={m.key}
+                className={`texture-map-btn${hasTexture ? " has-texture" : ""}`}
+                onClick={() => handleTextureUpload(m.key)}
+                title={hasTexture ? `${m.label}: ${fileName}` : `Upload ${m.label} map`}
+              >
+                <div className="texture-map-head">
+                  <span
+                    className={`texture-map-preview${hasTexture ? " has-image" : ""}`}
+                    style={slot?.url ? { backgroundImage: `url(${slot.url})` } : undefined}
+                    aria-hidden
+                  />
+                  <span className="texture-map-icon">{hasTexture ? "IMG" : "TX"}</span>
+                  <span className={`texture-map-status${hasTexture ? " is-loaded" : ""}`}>
+                    {hasTexture ? "Loaded" : "Empty"}
+                  </span>
+                </div>
+                <span className="texture-map-label">{m.label}</span>
+                <span className="texture-map-name">{fileName}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1112,6 +1152,165 @@ const ModelingToolsSection: React.FC = () => {
   );
 };
 
+const PolyEditSection: React.FC = () => {
+  const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
+  const document = useEditorStore((s) => s.document);
+  const meshEditMode = useEditorStore((s) => s.meshEditMode);
+  const meshEditSelection = useEditorStore((s) => s.meshEditSelection);
+  const node = selectedNodeId ? document.nodes[selectedNodeId] : null;
+
+  const [extrudeAmount, setExtrudeAmount] = useState(0.2);
+  const [bevelAmount, setBevelAmount] = useState(0.08);
+
+  if (!node || node.type !== "mesh") return null;
+
+  const hasSelection =
+    meshEditMode !== "object" &&
+    meshEditSelection !== null &&
+    meshEditSelection.faceIndex !== null &&
+    meshEditSelection.faceIndex >= 0;
+
+  const setMode = (mode: "object" | "vertex" | "edge" | "face") => {
+    window.dispatchEvent(
+      new CustomEvent("editor:set-mesh-edit-mode", {
+        detail: { mode },
+      })
+    );
+  };
+
+  const triggerExtrude = () => {
+    window.dispatchEvent(
+      new CustomEvent("editor:mesh-extrude", {
+        detail: { distance: extrudeAmount },
+      })
+    );
+  };
+
+  const triggerBevel = () => {
+    window.dispatchEvent(
+      new CustomEvent("editor:mesh-bevel", {
+        detail: { amount: bevelAmount },
+      })
+    );
+  };
+
+  const selectionSummary = (() => {
+    if (meshEditMode === "object") {
+      return "Switch to Vertex/Edge/Face mode and click in the viewport.";
+    }
+    if (!meshEditSelection) {
+      return "No component selected yet.";
+    }
+    if (meshEditSelection.mode === "vertex") {
+      return meshEditSelection.vertexIndex !== null
+        ? `Vertex #${meshEditSelection.vertexIndex}`
+        : "Vertex selection pending";
+    }
+    if (meshEditSelection.mode === "edge") {
+      return meshEditSelection.edge
+        ? `Edge #${meshEditSelection.edge[0]} - #${meshEditSelection.edge[1]}`
+        : "Edge selection pending";
+    }
+    return meshEditSelection.faceIndex !== null
+      ? `Face #${meshEditSelection.faceIndex}`
+      : "Face selection pending";
+  })();
+
+  return (
+    <div className="inspector-section">
+      <span className="inspector-section-label">Poly Edit</span>
+
+      <div className="inspector-subsection">
+        <span className="inspector-subsection-label">Mode</span>
+        <div className="modeling-btn-row">
+          <button
+            className={`modeling-btn ${meshEditMode === "object" ? "active" : ""}`}
+            onClick={() => setMode("object")}
+            title="Object mode (1)"
+          >
+            Object
+          </button>
+          <button
+            className={`modeling-btn ${meshEditMode === "vertex" ? "active" : ""}`}
+            onClick={() => setMode("vertex")}
+            title="Vertex mode (2)"
+          >
+            Vertex
+          </button>
+          <button
+            className={`modeling-btn ${meshEditMode === "edge" ? "active" : ""}`}
+            onClick={() => setMode("edge")}
+            title="Edge mode (3)"
+          >
+            Edge
+          </button>
+          <button
+            className={`modeling-btn ${meshEditMode === "face" ? "active" : ""}`}
+            onClick={() => setMode("face")}
+            title="Face mode (4)"
+          >
+            Face
+          </button>
+        </div>
+      </div>
+
+      <div className="inspector-subsection">
+        <span className="inspector-subsection-label">Selection</span>
+        <span className="inspector-hint">{selectionSummary}</span>
+      </div>
+
+      <div className="inspector-subsection">
+        <span className="inspector-subsection-label">Extrude</span>
+        <div className="inspector-poly-edit-row">
+          <input
+            type="number"
+            className="numeric-input"
+            value={Number(extrudeAmount.toFixed(3))}
+            step={0.05}
+            onChange={(e) => {
+              const val = Number.parseFloat(e.target.value);
+              if (!Number.isNaN(val)) setExtrudeAmount(val);
+            }}
+          />
+          <button
+            className="modeling-btn"
+            onClick={triggerExtrude}
+            disabled={!hasSelection}
+            title="Extrude selected component"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+
+      <div className="inspector-subsection">
+        <span className="inspector-subsection-label">Bevel</span>
+        <div className="inspector-poly-edit-row">
+          <input
+            type="number"
+            className="numeric-input"
+            value={Number(bevelAmount.toFixed(3))}
+            step={0.02}
+            min={0.001}
+            onChange={(e) => {
+              const val = Number.parseFloat(e.target.value);
+              if (!Number.isNaN(val)) setBevelAmount(val);
+            }}
+          />
+          <button
+            className="modeling-btn"
+            onClick={triggerBevel}
+            disabled={!hasSelection}
+            title="Bevel selected component"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Cloner Settings (edit params when a cloner group is selected) ──
 
 const ClonerSettingsSection: React.FC = () => {
@@ -1250,20 +1449,9 @@ export const Inspector: React.FC = () => {
 
   const node = selectedNodeId ? document.nodes[selectedNodeId] : null;
 
-  const selectNode = useEditorStore((s) => s.selectNode);
-
   return (
     <div className="inspector" role="region" aria-label="Inspector">
       <div className="inspector-header">
-        {node ? (
-          <button
-            className="inspector-back-btn"
-            onClick={() => selectNode(null)}
-            title="Back to Scene Settings"
-          >
-            ←
-          </button>
-        ) : null}
         <span className="inspector-title">
           {node ? "Inspector" : "Scene Settings"}
         </span>
@@ -1314,6 +1502,9 @@ export const Inspector: React.FC = () => {
           {/* Interactions (States, Events, Actions) */}
           <InteractionsPanel />
 
+          {/* Poly Editing (Vertex/Edge/Face + Extrude/Bevel) */}
+          <PolyEditSection />
+
           {/* Modeling Tools (Boolean, Cloner) */}
           <ModelingToolsSection />
 
@@ -1343,3 +1534,5 @@ export const Inspector: React.FC = () => {
     </div>
   );
 };
+
+

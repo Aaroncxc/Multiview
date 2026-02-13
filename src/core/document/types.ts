@@ -105,6 +105,17 @@ export type PrimitiveType =
   | "arrow"
   | "cloner";
 
+export type MeshEditMode = "object" | "vertex" | "edge" | "face";
+
+export interface MeshGeometryData {
+  /** Flat triangle list positions (x,y,z,...) */
+  position: number[];
+  /** Optional per-vertex normals (must match position length) */
+  normal?: number[];
+  /** Optional UVs (2 values per vertex) */
+  uv?: number[];
+}
+
 export interface MeshData {
   geometryType: PrimitiveType;
   materialId?: MaterialId;
@@ -113,6 +124,8 @@ export interface MeshData {
   text3dSize?: number;
   text3dDepth?: number;
   text3dBevel?: boolean;
+  /** Optional baked geometry for mesh edits (poly editing) */
+  customGeometry?: MeshGeometryData;
 }
 
 // ── Camera Node ──

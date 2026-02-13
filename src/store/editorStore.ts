@@ -27,6 +27,15 @@ import {
 import { commandStack } from "../core/commands/commandStack";
 import type { GizmoMode } from "../core/engine/threeBackend";
 import {
+  createEmptyMeshEditSelection,
+  dedupeEdges,
+  dedupeNumbers,
+  mergeSelections,
+  subtractSelections,
+  toggleSelections,
+  type MeshEditSelectionSet,
+} from "../core/engine/polyTopology";
+import {
   DEFAULT_VIEWER_EXPORT_OPTIONS,
   type ViewerExportOptions,
 } from "../core/io/viewerExportOptions";
@@ -35,20 +44,51 @@ import {
 
 export type ToolMode = "select" | "translate" | "rotate" | "scale";
 export type UiTheme = "light" | "dark";
+export type MeshEditSelectableMode = Exclude<MeshEditMode, "object">;
 
-export interface MeshEditSelection {
-  mode: Exclude<MeshEditMode, "object">;
-  faceIndex: number | null;
-  vertexIndex: number | null;
-  edge: [number, number] | null;
+export type MeshEditSelectionsByMode = Record<
+  MeshEditSelectableMode,
+  MeshEditSelectionSet
+>;
+
+export interface MeshEditSelectionPatch {
+  faces?: number[];
+  edges?: Array<[number, number]>;
+  vertices?: number[];
+  active?: MeshEditSelectionSet["active"];
+}
+
+function createMeshEditSelectionsByMode(): MeshEditSelectionsByMode {
+  return {
+    vertex: createEmptyMeshEditSelection(),
+    edge: createEmptyMeshEditSelection(),
+    face: createEmptyMeshEditSelection(),
+  };
+}
+
+function normalizePatch(patch: MeshEditSelectionPatch): MeshEditSelectionPatch {
+  return {
+    faces: patch.faces ? dedupeNumbers(patch.faces) : undefined,
+    edges: patch.edges ? dedupeEdges(patch.edges) : undefined,
+    vertices: patch.vertices ? dedupeNumbers(patch.vertices) : undefined,
+    active: patch.active ?? undefined,
+  };
+}
+
+function replaceSelection(patch: MeshEditSelectionPatch): MeshEditSelectionSet {
+  const normalized = normalizePatch(patch);
+  return {
+    faces: normalized.faces ?? [],
+    edges: normalized.edges ?? [],
+    vertices: normalized.vertices ?? [],
+    active: normalized.active ?? null,
+  };
 }
 
 const UI_THEME_STORAGE_KEY = "multiview-editor.ui-theme";
 
 function readInitialUiTheme(): UiTheme {
-  if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem(UI_THEME_STORAGE_KEY);
-  return stored === "dark" ? "dark" : "light";
+  return "dark";
 }
 
 export interface EditorState {
@@ -74,7 +114,7 @@ export interface EditorState {
   showStats: boolean;
   uiTheme: UiTheme;
   meshEditMode: MeshEditMode;
-  meshEditSelection: MeshEditSelection | null;
+  meshEditSelections: MeshEditSelectionsByMode;
 
   // Undo/Redo state (reactive)
   canUndo: boolean;
@@ -118,8 +158,12 @@ export interface EditorState {
   // Tools
   setToolMode: (mode: ToolMode) => void;
   setMeshEditMode: (mode: MeshEditMode) => void;
-  setMeshEditSelection: (selection: MeshEditSelection | null) => void;
-  clearMeshEditSelection: () => void;
+  replaceMeshSelection: (mode: MeshEditSelectableMode, patch: MeshEditSelectionPatch) => void;
+  addToMeshSelection: (mode: MeshEditSelectableMode, patch: MeshEditSelectionPatch) => void;
+  removeFromMeshSelection: (mode: MeshEditSelectableMode, patch: MeshEditSelectionPatch) => void;
+  toggleMeshSelection: (mode: MeshEditSelectableMode, patch: MeshEditSelectionPatch) => void;
+  clearMeshSelection: (mode?: MeshEditSelectableMode) => void;
+  getCurrentMeshEditSelection: () => MeshEditSelectionSet | null;
 
   // Snapping
   toggleSnap: () => void;
@@ -167,7 +211,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   showStats: false,
   uiTheme: readInitialUiTheme(),
   meshEditMode: "object",
-  meshEditSelection: null,
+  meshEditSelections: createMeshEditSelectionsByMode(),
   canUndo: false,
   canRedo: false,
   undoLabel: null,
@@ -362,7 +406,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get();
     const gizmoMode =
       state.toolMode === "select" ? state.gizmoMode : (state.toolMode as GizmoMode);
-    set({ selectedNodeId: id, gizmoMode, meshEditSelection: null });
+    set({
+      selectedNodeId: id,
+      gizmoMode,
+      meshEditSelections: createMeshEditSelectionsByMode(),
+    });
   },
 
   // ── Tool Mode ──
@@ -372,9 +420,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode === "select" ? "translate" : (mode as GizmoMode);
     set({ toolMode: mode, gizmoMode });
   },
-  setMeshEditMode: (mode) => set({ meshEditMode: mode, meshEditSelection: null }),
-  setMeshEditSelection: (selection) => set({ meshEditSelection: selection }),
-  clearMeshEditSelection: () => set({ meshEditSelection: null }),
+  setMeshEditMode: (mode) => set({ meshEditMode: mode }),
+  replaceMeshSelection: (mode, patch) =>
+    set((state) => ({
+      meshEditSelections: {
+        ...state.meshEditSelections,
+        [mode]: replaceSelection(patch),
+      },
+    })),
+  addToMeshSelection: (mode, patch) =>
+    set((state) => ({
+      meshEditSelections: {
+        ...state.meshEditSelections,
+        [mode]: mergeSelections(state.meshEditSelections[mode], normalizePatch(patch)),
+      },
+    })),
+  removeFromMeshSelection: (mode, patch) =>
+    set((state) => ({
+      meshEditSelections: {
+        ...state.meshEditSelections,
+        [mode]: subtractSelections(state.meshEditSelections[mode], normalizePatch(patch)),
+      },
+    })),
+  toggleMeshSelection: (mode, patch) =>
+    set((state) => ({
+      meshEditSelections: {
+        ...state.meshEditSelections,
+        [mode]: toggleSelections(state.meshEditSelections[mode], normalizePatch(patch)),
+      },
+    })),
+  clearMeshSelection: (mode) =>
+    set((state) => {
+      if (!mode) {
+        return { meshEditSelections: createMeshEditSelectionsByMode() };
+      }
+      return {
+        meshEditSelections: {
+          ...state.meshEditSelections,
+          [mode]: createEmptyMeshEditSelection(),
+        },
+      };
+    }),
+  getCurrentMeshEditSelection: () => {
+    const state = get();
+    if (state.meshEditMode === "object") return null;
+    return state.meshEditSelections[state.meshEditMode];
+  },
 
   // ── Snapping ──
 

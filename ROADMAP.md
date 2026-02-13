@@ -146,12 +146,14 @@ Sketchfab ist der Referenz-Viewer für Portfolio-Embeds. Diese Features sollen w
 
 ### 6P: Poly Editing (MVP → Advanced)
 
+> Hinweis (V1): Der aktuelle MVP ist bewusst pragmatisch/robust auf Tri-Mesh-Basis umgesetzt (Blender-nahe UX, aber keine vollständige Blender-Topologie-Parität).
+
 | Sub-Phase | Aufgabe | Status |
 |-----------|---------|--------|
-| 6P.1 | Edit-Mode (Vertex / Edge / Face) | ⬜ |
-| 6P.2 | Selektion: Click, Box, Loop, Ring | ⬜ |
-| 6P.3 | Extrude (Face/Edge), Inset | ⬜ |
-| 6P.4 | Bevel (Edge/Vertex) | ⬜ |
+| 6P.1 | Edit-Mode (Vertex / Edge / Face) | ✅ |
+| 6P.2 | Selektion: Click, Box, Loop, Ring (MVP: Click + Box) | ✅ |
+| 6P.3 | Extrude (Face/Edge), Inset (V1: Region-Extrude) | ✅ |
+| 6P.4 | Bevel (Edge/Vertex) (V1: einfach + stabil) | ✅ |
 | 6P.5 | Loop Cut / Knife (Basis) | ⬜ |
 | 6P.6 | Merge / Weld / Dissolve | ⬜ |
 | 6P.7 | Normals + Auto Smooth | ⬜ |

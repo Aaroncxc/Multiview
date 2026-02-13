@@ -8,8 +8,7 @@ import { App } from "./app/App";
 import "./styles/tokens.css";
 import "./styles/reset.css";
 
-const storedTheme = window.localStorage.getItem("multiview-editor.ui-theme");
-const initialTheme = storedTheme === "dark" ? "dark" : "light";
+const initialTheme = "dark";
 document.documentElement.setAttribute("data-theme", initialTheme);
 document.documentElement.style.colorScheme = initialTheme;
 

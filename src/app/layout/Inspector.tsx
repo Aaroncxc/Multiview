@@ -1156,19 +1156,24 @@ const PolyEditSection: React.FC = () => {
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const document = useEditorStore((s) => s.document);
   const meshEditMode = useEditorStore((s) => s.meshEditMode);
-  const meshEditSelection = useEditorStore((s) => s.meshEditSelection);
+  const meshEditSelections = useEditorStore((s) => s.meshEditSelections);
   const node = selectedNodeId ? document.nodes[selectedNodeId] : null;
 
   const [extrudeAmount, setExtrudeAmount] = useState(0.2);
   const [bevelAmount, setBevelAmount] = useState(0.08);
 
-  if (!node || node.type !== "mesh") return null;
-
-  const hasSelection =
-    meshEditMode !== "object" &&
-    meshEditSelection !== null &&
-    meshEditSelection.faceIndex !== null &&
-    meshEditSelection.faceIndex >= 0;
+  const currentSelection =
+    meshEditMode === "object" ? null : meshEditSelections[meshEditMode];
+  const selectedCount =
+    meshEditMode === "object"
+      ? 0
+      : meshEditMode === "face"
+        ? currentSelection?.faces.length ?? 0
+        : meshEditMode === "edge"
+          ? currentSelection?.edges.length ?? 0
+          : currentSelection?.vertices.length ?? 0;
+  const hasSelection = selectedCount > 0;
+  const bevelAllowed = meshEditMode === "vertex" || meshEditMode === "edge";
 
   const setMode = (mode: "object" | "vertex" | "edge" | "face") => {
     window.dispatchEvent(
@@ -1180,7 +1185,7 @@ const PolyEditSection: React.FC = () => {
 
   const triggerExtrude = () => {
     window.dispatchEvent(
-      new CustomEvent("editor:mesh-extrude", {
+      new CustomEvent("editor:mesh-start-extrude", {
         detail: { distance: extrudeAmount },
       })
     );
@@ -1188,32 +1193,41 @@ const PolyEditSection: React.FC = () => {
 
   const triggerBevel = () => {
     window.dispatchEvent(
-      new CustomEvent("editor:mesh-bevel", {
+      new CustomEvent("editor:mesh-start-bevel", {
         detail: { amount: bevelAmount },
       })
     );
   };
 
+  useEffect(() => {
+    (window as Window & { __meshExtrudeAmount?: number }).__meshExtrudeAmount =
+      extrudeAmount;
+  }, [extrudeAmount]);
+
+  useEffect(() => {
+    (window as Window & { __meshBevelAmount?: number }).__meshBevelAmount =
+      bevelAmount;
+  }, [bevelAmount]);
+
+  if (!node || node.type !== "mesh") return null;
+
   const selectionSummary = (() => {
     if (meshEditMode === "object") {
       return "Switch to Vertex/Edge/Face mode and click in the viewport.";
     }
-    if (!meshEditSelection) {
+    if (!currentSelection || !hasSelection) {
       return "No component selected yet.";
     }
-    if (meshEditSelection.mode === "vertex") {
-      return meshEditSelection.vertexIndex !== null
-        ? `Vertex #${meshEditSelection.vertexIndex}`
-        : "Vertex selection pending";
+    if (!currentSelection.active) {
+      return `${selectedCount} selected`;
     }
-    if (meshEditSelection.mode === "edge") {
-      return meshEditSelection.edge
-        ? `Edge #${meshEditSelection.edge[0]} - #${meshEditSelection.edge[1]}`
-        : "Edge selection pending";
+    if (currentSelection.active.kind === "vertex") {
+      return `${selectedCount} selected | active vertex #${currentSelection.active.vertex}`;
     }
-    return meshEditSelection.faceIndex !== null
-      ? `Face #${meshEditSelection.faceIndex}`
-      : "Face selection pending";
+    if (currentSelection.active.kind === "edge") {
+      return `${selectedCount} selected | active edge #${currentSelection.active.edge[0]}-#${currentSelection.active.edge[1]}`;
+    }
+    return `${selectedCount} selected | active face #${currentSelection.active.face}`;
   })();
 
   return (
@@ -1257,6 +1271,9 @@ const PolyEditSection: React.FC = () => {
       <div className="inspector-subsection">
         <span className="inspector-subsection-label">Selection</span>
         <span className="inspector-hint">{selectionSummary}</span>
+        <span className="inspector-hint">
+          Box Select: B + Drag | Shift add | Ctrl/Cmd remove
+        </span>
       </div>
 
       <div className="inspector-subsection">
@@ -1276,9 +1293,9 @@ const PolyEditSection: React.FC = () => {
             className="modeling-btn"
             onClick={triggerExtrude}
             disabled={!hasSelection}
-            title="Extrude selected component"
+            title="Start extrude gizmo (E)"
           >
-            Apply
+            Extrude (E)
           </button>
         </div>
       </div>
@@ -1300,12 +1317,19 @@ const PolyEditSection: React.FC = () => {
           <button
             className="modeling-btn"
             onClick={triggerBevel}
-            disabled={!hasSelection}
-            title="Bevel selected component"
+            disabled={!hasSelection || !bevelAllowed}
+            title={
+              !bevelAllowed
+                ? "Bevel is disabled in face mode"
+                : "Start bevel gizmo (Ctrl+B)"
+            }
           >
-            Apply
+            Bevel (Ctrl+B)
           </button>
         </div>
+        {!bevelAllowed && (
+          <span className="inspector-hint">Bevel works in Vertex/Edge mode only.</span>
+        )}
       </div>
     </div>
   );
@@ -1534,5 +1558,3 @@ export const Inspector: React.FC = () => {
     </div>
   );
 };
-
-

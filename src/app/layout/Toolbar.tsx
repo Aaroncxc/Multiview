@@ -7,6 +7,7 @@ import { useEditorStore } from "../../store/editorStore";
 import type { ToolMode } from "../../store/editorStore";
 import { exportAsJSON } from "../../core/io/projectStorage";
 import { showToast } from "../../ui/Toast";
+import { getBackend } from "./Viewport";
 import "./Toolbar.css";
 
 const PRIMITIVES = [
@@ -63,6 +64,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ compact = false }) => {
   const projectName = useEditorStore((s) => s.document.projectName);
   const setProjectName = useEditorStore((s) => s.setProjectName);
   const document = useEditorStore((s) => s.document);
+  const addSceneNode = useEditorStore((s) => s.addSceneNode);
+  const selectNode = useEditorStore((s) => s.selectNode);
 
   const modelFileInputRef = useRef<HTMLInputElement>(null);
   const toolbarRootRef = useRef<HTMLElement>(null);
@@ -102,12 +105,85 @@ export const Toolbar: React.FC<ToolbarProps> = ({ compact = false }) => {
   };
 
   const handleAddPrimitive = (type: string) => {
-    const shapeTypes = ["star", "heart", "arrow"];
-    if (shapeTypes.includes(type)) {
-      window.dispatchEvent(new CustomEvent("editor:add-shape", { detail: { shapeType: type } }));
-    } else {
-      window.dispatchEvent(new CustomEvent("editor:add-primitive", { detail: { type } }));
+    const runtime = getBackend();
+    if (!runtime) {
+      showToast("Viewport is not ready yet", "warning");
+      setShowPrimitives(false);
+      return;
     }
+
+    const state = useEditorStore.getState();
+    const count = Object.keys(state.document.nodes).length;
+    const name = `${type.charAt(0).toUpperCase() + type.slice(1)}_${count + 1}`;
+
+    try {
+      const isShape = type === "star" || type === "heart" || type === "arrow";
+      const result = isShape
+        ? runtime.addExtrudedShape(type as "star" | "heart" | "arrow", name)
+        : runtime.addPrimitive(type, name);
+      const transform = runtime.getObjectTransform(result.uuid);
+
+      const nodeId = addSceneNode({
+        name,
+        type: "mesh",
+        runtimeObjectUuid: result.uuid,
+        transform: transform ?? undefined,
+        mesh: { geometryType: type as any },
+      });
+
+      selectNode(nodeId);
+      showToast(`Added ${name}`, "info");
+    } catch (err) {
+      console.error("Failed to add primitive:", err);
+      showToast(`Failed to add ${type}`, "error");
+    }
+
+    setShowPrimitives(false);
+  };
+
+  const handleAddText3D = async () => {
+    const text = window.prompt("Enter 3D text:", "Hello");
+    if (!text) {
+      setShowPrimitives(false);
+      return;
+    }
+
+    const runtime = getBackend();
+    if (!runtime) {
+      showToast("Viewport is not ready yet", "warning");
+      setShowPrimitives(false);
+      return;
+    }
+
+    const state = useEditorStore.getState();
+    const count = Object.keys(state.document.nodes).length;
+    const name = `Text3D_${count + 1}`;
+
+    try {
+      const result = await runtime.addText3D(text, name);
+      const transform = runtime.getObjectTransform(result.uuid);
+
+      const nodeId = addSceneNode({
+        name,
+        type: "mesh",
+        runtimeObjectUuid: result.uuid,
+        transform: transform ?? undefined,
+        mesh: {
+          geometryType: "text3d" as any,
+          text3dContent: text,
+          text3dSize: 0.5,
+          text3dDepth: 0.2,
+          text3dBevel: true,
+        },
+      });
+
+      selectNode(nodeId);
+      showToast(`Added 3D Text: "${text}"`, "info");
+    } catch (err) {
+      console.error("Failed to add 3D text:", err);
+      showToast("Failed to create 3D text", "error");
+    }
+
     setShowPrimitives(false);
   };
 
@@ -215,15 +291,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ compact = false }) => {
                       <button
                         key={primitive.type}
                         className="toolbar-dropdown-item"
-                        onClick={() => {
-                          const text = window.prompt("Enter 3D text:", "Hello");
-                          if (text) {
-                            window.dispatchEvent(
-                              new CustomEvent("editor:add-text3d", { detail: { text } })
-                            );
-                          }
-                          setShowPrimitives(false);
-                        }}
+                        onClick={handleAddText3D}
                       >
                         <span className="toolbar-dropdown-icon">{primitive.icon}</span>
                         <span>{primitive.label}</span>

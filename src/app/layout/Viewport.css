@@ -28,6 +28,18 @@
   cursor: default;
 }
 
+.viewport-canvas.viewport-canvas-box-select {
+  cursor: crosshair;
+}
+
+.viewport-box-select-rect {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--accent) 82%, white);
+  background: color-mix(in srgb, var(--accent-soft-bg) 38%, transparent);
+  pointer-events: none;
+  z-index: 7;
+}
+
 /* ── Stats Overlay ── */
 
 .viewport-stats {
@@ -591,4 +603,3 @@
     flex-direction: column;
   }
 }
-

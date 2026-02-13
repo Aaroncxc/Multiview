@@ -30,10 +30,13 @@ import type {
   Transform,
   SceneNode,
   NodeId,
+  MeshEditMode,
+  MeshGeometryData,
 } from "../../core/document/types";
 import { collectSubtreeIds } from "../../core/document/sceneDocument";
 import { mergeViewerExportOptions } from "../../core/io/viewerExportOptions";
 import { exportViewerHTML } from "../../core/io/viewerExport";
+import type { MeshEditSelectionSet } from "../../core/engine/polyTopology";
 import "./Viewport.css";
 
 // Singleton backend instance
@@ -122,6 +125,53 @@ interface CopiedSubtreePayload {
   nodes: Record<NodeId, SceneNode>;
 }
 
+type MeshEditSelectableMode = Exclude<MeshEditMode, "object">;
+type MeshEditOperation = "extrude" | "bevel";
+
+interface BoxSelectionSession {
+  pointerId: number;
+  mode: MeshEditSelectableMode;
+  runtimeUuid: string;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
+interface MeshEditDragSession {
+  operation: MeshEditOperation;
+  mode: MeshEditSelectableMode;
+  nodeId: NodeId;
+  runtimeUuid: string;
+  baseAmount: number;
+  beforeGeometry: MeshGeometryData;
+  beforeSelection: MeshEditSelectionSet;
+  previewSelection: MeshEditSelectionSet;
+}
+
+function cloneMeshSelection(selection: MeshEditSelectionSet): MeshEditSelectionSet {
+  return {
+    faces: [...selection.faces],
+    edges: selection.edges.map((edge) => [edge[0], edge[1]] as [number, number]),
+    vertices: [...selection.vertices],
+    active: selection.active
+      ? selection.active.kind === "face"
+        ? { kind: "face", face: selection.active.face }
+        : selection.active.kind === "edge"
+          ? { kind: "edge", edge: [selection.active.edge[0], selection.active.edge[1]] }
+          : { kind: "vertex", vertex: selection.active.vertex }
+      : null,
+  };
+}
+
+function hasMeshSelection(selection: MeshEditSelectionSet): boolean {
+  return (
+    selection.faces.length > 0 ||
+    selection.edges.length > 0 ||
+    selection.vertices.length > 0
+  );
+}
+
 export const Viewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const projectFileInputRef = useRef<HTMLInputElement>(null);
@@ -137,10 +187,13 @@ export const Viewport: React.FC = () => {
   const snapEnabled = useEditorStore((s) => s.snapEnabled);
   const snapValue = useEditorStore((s) => s.snapValue);
   const meshEditMode = useEditorStore((s) => s.meshEditMode);
-  const meshEditSelection = useEditorStore((s) => s.meshEditSelection);
+  const meshEditSelections = useEditorStore((s) => s.meshEditSelections);
   const setMeshEditMode = useEditorStore((s) => s.setMeshEditMode);
-  const setMeshEditSelection = useEditorStore((s) => s.setMeshEditSelection);
-  const clearMeshEditSelection = useEditorStore((s) => s.clearMeshEditSelection);
+  const replaceMeshSelection = useEditorStore((s) => s.replaceMeshSelection);
+  const addToMeshSelection = useEditorStore((s) => s.addToMeshSelection);
+  const removeFromMeshSelection = useEditorStore((s) => s.removeFromMeshSelection);
+  const toggleMeshSelection = useEditorStore((s) => s.toggleMeshSelection);
+  const clearMeshSelection = useEditorStore((s) => s.clearMeshSelection);
   const document = useEditorStore((s) => s.document);
   const isTransparentViewport =
     document.sceneSettings.backgroundType === "transparent";
@@ -157,10 +210,27 @@ export const Viewport: React.FC = () => {
   const viewerPreviewUrlRef = useRef<string | null>(null);
   const activeProjectKeyRef = useRef<string | null>(null);
   const lastSavedFingerprintRef = useRef<string>(JSON.stringify(document));
+  const ignoreNextCanvasClickRef = useRef(false);
+  const meshEditDragSessionRef = useRef<MeshEditDragSession | null>(null);
+  const boxSelectionRef = useRef<BoxSelectionSession | null>(null);
+  const isBoxSelectionArmedRef = useRef(false);
   const visibilitySyncRef = useRef<Map<NodeId, { visible: boolean; runtimeObjectUuid?: string }>>(
     new Map()
   );
+  const [isBoxSelectionArmed, setIsBoxSelectionArmed] = useState(false);
+  const [boxSelectionRect, setBoxSelectionRect] = useState<{
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+  } | null>(null);
   const appVersion = __APP_VERSION__;
+  const meshEditSelection =
+    meshEditMode === "object" ? null : meshEditSelections[meshEditMode];
+
+  useEffect(() => {
+    isBoxSelectionArmedRef.current = isBoxSelectionArmed;
+  }, [isBoxSelectionArmed]);
 
   const dismissStartupIntro = useCallback(() => {
     setIsStartupIntroOpen(false);
@@ -510,6 +580,128 @@ export const Viewport: React.FC = () => {
     revokeViewerPreviewUrl();
   }, [revokeViewerPreviewUrl]);
 
+  const resolveActiveEditableMesh = useCallback(() => {
+    const state = useEditorStore.getState();
+    if (state.meshEditMode === "object") return null;
+    if (!state.selectedNodeId) return null;
+    const node = state.document.nodes[state.selectedNodeId];
+    if (!node || node.type !== "mesh" || !node.mesh || !node.runtimeObjectUuid) {
+      return null;
+    }
+    const mode = state.meshEditMode as MeshEditSelectableMode;
+    return {
+      nodeId: node.id,
+      runtimeUuid: node.runtimeObjectUuid,
+      mode,
+      selection: cloneMeshSelection(state.meshEditSelections[mode]),
+    };
+  }, []);
+
+  const buildPatchFromPickResult = useCallback(
+    (
+      mode: MeshEditSelectableMode,
+      component: {
+        faceIndex: number | null;
+        edge: [number, number] | null;
+        vertexIndex: number | null;
+      }
+    ) => {
+      if (mode === "face" && component.faceIndex !== null) {
+        return {
+          faces: [component.faceIndex],
+          active: { kind: "face", face: component.faceIndex } as const,
+        };
+      }
+      if (mode === "edge" && component.edge) {
+        return {
+          edges: [component.edge],
+          active: { kind: "edge", edge: component.edge } as const,
+        };
+      }
+      if (mode === "vertex" && component.vertexIndex !== null) {
+        return {
+          vertices: [component.vertexIndex],
+          active: { kind: "vertex", vertex: component.vertexIndex } as const,
+        };
+      }
+      return null;
+    },
+    []
+  );
+
+  const buildPatchFromRectResult = useCallback(
+    (
+      mode: MeshEditSelectableMode,
+      rectResult: {
+        faces: number[];
+        edges: Array<[number, number]>;
+        vertices: number[];
+      }
+    ) => {
+      if (mode === "face") {
+        return {
+          faces: rectResult.faces,
+          active:
+            rectResult.faces.length > 0
+              ? ({ kind: "face", face: rectResult.faces[0]! } as const)
+              : null,
+        };
+      }
+      if (mode === "edge") {
+        return {
+          edges: rectResult.edges,
+          active:
+            rectResult.edges.length > 0
+              ? ({ kind: "edge", edge: rectResult.edges[0]! } as const)
+              : null,
+        };
+      }
+      return {
+        vertices: rectResult.vertices,
+        active:
+          rectResult.vertices.length > 0
+            ? ({ kind: "vertex", vertex: rectResult.vertices[0]! } as const)
+            : null,
+      };
+    },
+    []
+  );
+
+  const applyRectSelection = useCallback(
+    (
+      session: BoxSelectionSession,
+      modifiers: { shift: boolean; remove: boolean }
+    ) => {
+      if (!backend) return;
+      const rectResult = backend.pickMeshComponentsInRect(
+        session.runtimeUuid,
+        {
+          x0: session.startX,
+          y0: session.startY,
+          x1: session.currentX,
+          y1: session.currentY,
+        },
+        session.mode
+      );
+      const patch = buildPatchFromRectResult(session.mode, rectResult);
+
+      if (modifiers.remove) {
+        removeFromMeshSelection(session.mode, patch);
+      } else if (modifiers.shift) {
+        addToMeshSelection(session.mode, patch);
+      } else {
+        replaceMeshSelection(session.mode, patch);
+      }
+    },
+    [addToMeshSelection, buildPatchFromRectResult, removeFromMeshSelection, replaceMeshSelection]
+  );
+
+  const cancelBoxSelection = useCallback(() => {
+    boxSelectionRef.current = null;
+    setBoxSelectionRect(null);
+    setIsBoxSelectionArmed(false);
+  }, []);
+
   // ── Initialize Three.js ──
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -601,43 +793,41 @@ export const Viewport: React.FC = () => {
   // ── Handle canvas click → pick & select + fire interaction ──
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (ignoreNextCanvasClickRef.current) {
+        ignoreNextCanvasClickRef.current = false;
+        return;
+      }
       if (!backend) return;
 
-      const state = useEditorStore.getState();
-      const selectedNode = state.selectedNodeId
-        ? state.document.nodes[state.selectedNodeId]
-        : null;
-      const selectedMeshUuid =
-        selectedNode && selectedNode.type === "mesh"
-          ? selectedNode.runtimeObjectUuid
-          : null;
-
-      if (meshEditMode !== "object" && selectedMeshUuid) {
-        backend.ensureMeshEditable(selectedMeshUuid);
+      const activeMesh = resolveActiveEditableMesh();
+      if (activeMesh) {
+        backend.ensureMeshEditable(activeMesh.runtimeUuid);
         const component = backend.pickMeshComponent(
-          selectedMeshUuid,
+          activeMesh.runtimeUuid,
           e.clientX,
           e.clientY,
-          meshEditMode
+          activeMesh.mode
         );
         if (component) {
-          const selection = {
-            mode: component.mode,
-            faceIndex: component.faceIndex,
-            vertexIndex: component.vertexIndex,
-            edge: component.edge,
-          };
-          setMeshEditSelection(selection);
-          backend.highlightMeshComponent(selectedMeshUuid, selection);
+          const patch = buildPatchFromPickResult(activeMesh.mode, component);
+          if (!patch) return;
+          if (e.shiftKey) {
+            toggleMeshSelection(activeMesh.mode, patch);
+          } else if (e.ctrlKey || e.metaKey) {
+            removeFromMeshSelection(activeMesh.mode, patch);
+          } else {
+            replaceMeshSelection(activeMesh.mode, patch);
+          }
           return;
         }
-      }
-
-      if (meshEditMode !== "object") {
-        clearMeshEditSelection();
+        if (!e.shiftKey && !(e.ctrlKey || e.metaKey)) {
+          clearMeshSelection(activeMesh.mode);
+        }
         backend.clearMeshEditHighlight();
+        return;
       }
 
+      const state = useEditorStore.getState();
       const result = backend.pick(e.clientX, e.clientY);
       if (result) {
         const node = state.getNodeByRuntimeUuid(result.objectUuid);
@@ -651,7 +841,113 @@ export const Viewport: React.FC = () => {
         selectNode(null);
       }
     },
-    [clearMeshEditSelection, meshEditMode, selectNode, setMeshEditSelection]
+    [
+      buildPatchFromPickResult,
+      clearMeshSelection,
+      removeFromMeshSelection,
+      replaceMeshSelection,
+      resolveActiveEditableMesh,
+      selectNode,
+      toggleMeshSelection,
+    ]
+  );
+
+  const handleCanvasPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!isBoxSelectionArmed) return;
+      if (e.button !== 0) return;
+
+      const activeMesh = resolveActiveEditableMesh();
+      if (!activeMesh) {
+        cancelBoxSelection();
+        return;
+      }
+
+      boxSelectionRef.current = {
+        pointerId: e.pointerId,
+        mode: activeMesh.mode,
+        runtimeUuid: activeMesh.runtimeUuid,
+        startX: e.clientX,
+        startY: e.clientY,
+        currentX: e.clientX,
+        currentY: e.clientY,
+      };
+      setBoxSelectionRect({
+        x0: e.clientX,
+        y0: e.clientY,
+        x1: e.clientX,
+        y1: e.clientY,
+      });
+      ignoreNextCanvasClickRef.current = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    [cancelBoxSelection, isBoxSelectionArmed, resolveActiveEditableMesh]
+  );
+
+  const handleCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const session = boxSelectionRef.current;
+    if (!session || session.pointerId !== e.pointerId) return;
+    session.currentX = e.clientX;
+    session.currentY = e.clientY;
+    setBoxSelectionRect({
+      x0: session.startX,
+      y0: session.startY,
+      x1: session.currentX,
+      y1: session.currentY,
+    });
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const finishBoxSelection = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const session = boxSelectionRef.current;
+      if (!session || session.pointerId !== e.pointerId) return;
+
+      session.currentX = e.clientX;
+      session.currentY = e.clientY;
+      const width = Math.abs(session.currentX - session.startX);
+      const height = Math.abs(session.currentY - session.startY);
+      if (width >= 4 || height >= 4) {
+        applyRectSelection(session, {
+          shift: e.shiftKey,
+          remove: e.ctrlKey || e.metaKey,
+        });
+      }
+
+      ignoreNextCanvasClickRef.current = true;
+      cancelBoxSelection();
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    [applyRectSelection, cancelBoxSelection]
+  );
+
+  const handleCanvasPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (boxSelectionRef.current?.pointerId !== e.pointerId) return;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      finishBoxSelection(e);
+    },
+    [finishBoxSelection]
+  );
+
+  const handleCanvasPointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (boxSelectionRef.current?.pointerId !== e.pointerId) return;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      ignoreNextCanvasClickRef.current = true;
+      cancelBoxSelection();
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    [cancelBoxSelection]
   );
 
   // ── Double click ──
@@ -673,6 +969,7 @@ export const Viewport: React.FC = () => {
   // ── Handle hover → mouseEnter / mouseLeave ──
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (boxSelectionRef.current) return;
       backend?.updateHover(e.clientX, e.clientY);
 
       // Interaction hover events
@@ -708,7 +1005,6 @@ export const Viewport: React.FC = () => {
       selected && selected.type === "mesh" ? selected.runtimeObjectUuid : null;
 
     if (meshEditMode === "object" || !selectedMeshUuid) {
-      clearMeshEditSelection();
       backend.clearMeshEditHighlight();
       return;
     }
@@ -721,11 +1017,23 @@ export const Viewport: React.FC = () => {
       backend.clearMeshEditHighlight();
     }
   }, [
-    clearMeshEditSelection,
     meshEditMode,
     meshEditSelection,
     selectedNodeId,
     document.nodes,
+  ]);
+
+  useEffect(() => {
+    if (!isBoxSelectionArmed && !boxSelectionRef.current) return;
+    if (meshEditMode === "object" || !resolveActiveEditableMesh()) {
+      cancelBoxSelection();
+    }
+  }, [
+    cancelBoxSelection,
+    isBoxSelectionArmed,
+    meshEditMode,
+    resolveActiveEditableMesh,
+    selectedNodeId,
   ]);
 
   // ── Handle keyboard shortcuts ──
@@ -991,6 +1299,13 @@ export const Viewport: React.FC = () => {
             if (label) showToast(`Redo ${label}`, "info");
             return;
           }
+          case "b": {
+            if (state.meshEditMode !== "object") {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent("editor:mesh-start-bevel"));
+            }
+            return;
+          }
           case "d": {
             e.preventDefault();
             if (!state.selectedNodeId) return;
@@ -1103,18 +1418,22 @@ export const Viewport: React.FC = () => {
       switch (e.key.toLowerCase()) {
         case "1":
           state.setMeshEditMode("object");
+          setIsBoxSelectionArmed(false);
           showToast("Object mode", "info");
           break;
         case "2":
           state.setMeshEditMode("vertex");
+          setIsBoxSelectionArmed(false);
           showToast("Vertex mode", "info");
           break;
         case "3":
           state.setMeshEditMode("edge");
+          setIsBoxSelectionArmed(false);
           showToast("Edge mode", "info");
           break;
         case "4":
           state.setMeshEditMode("face");
+          setIsBoxSelectionArmed(false);
           showToast("Face mode", "info");
           break;
         case "v":
@@ -1124,7 +1443,12 @@ export const Viewport: React.FC = () => {
           state.setToolMode("translate");
           break;
         case "e":
-          state.setToolMode("rotate");
+          if (state.meshEditMode === "object") {
+            state.setToolMode("rotate");
+          } else {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent("editor:mesh-start-extrude"));
+          }
           break;
         case "r":
           state.setToolMode("scale");
@@ -1174,7 +1498,25 @@ export const Viewport: React.FC = () => {
             state.refreshUndoState();
           }
           break;
+        case "b":
+          if (state.meshEditMode !== "object") {
+            e.preventDefault();
+            setIsBoxSelectionArmed(true);
+            showToast("Box Select: drag in viewport (Shift add, Ctrl/Cmd remove)", "info");
+          }
+          break;
         case "escape":
+          if (boxSelectionRef.current || isBoxSelectionArmedRef.current) {
+            e.preventDefault();
+            cancelBoxSelection();
+            showToast("Box selection canceled", "info");
+            return;
+          }
+          if (meshEditDragSessionRef.current) {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent("editor:mesh-cancel-operation"));
+            return;
+          }
           state.selectNode(null);
           break;
       }
@@ -1486,8 +1828,10 @@ export const Viewport: React.FC = () => {
     };
   }, [addSceneNode, selectNode]);
 
-  // ── Poly Edit Mode + Operations (Extrude / Bevel) ──
+  // ── Poly Edit Mode + Operations (Multi-Selection + Gizmo) ──
   useEffect(() => {
+    if (!backend) return;
+
     const persistEditedGeometry = (nodeId: NodeId, runtimeUuid: string): boolean => {
       if (!backend) return false;
       const geometryData = backend.getMeshGeometryData(runtimeUuid);
@@ -1513,134 +1857,280 @@ export const Viewport: React.FC = () => {
       return true;
     };
 
-    const getActiveEditableNode = () => {
-      const state = useEditorStore.getState();
-      const nodeId = state.selectedNodeId;
-      if (!nodeId) return null;
-      const node = state.document.nodes[nodeId];
-      if (!node || node.type !== "mesh" || !node.mesh || !node.runtimeObjectUuid) {
-        return null;
-      }
-      return {
-        nodeId,
-        runtimeUuid: node.runtimeObjectUuid,
-        selection: state.meshEditSelection,
-      };
-    };
-
-    const applyMeshCommand = (
-      label: string,
-      mutate: (runtimeUuid: string, faceIndex: number, amount: number) => boolean,
+    const runMeshOp = (
+      operation: MeshEditOperation,
+      runtimeUuid: string,
+      mode: MeshEditSelectableMode,
+      selection: MeshEditSelectionSet,
       amount: number
     ) => {
+      if (!backend) return null;
+      if (operation === "extrude") {
+        return backend.extrudeMeshSelection(runtimeUuid, mode, selection, amount);
+      }
+      return backend.bevelMeshSelection(runtimeUuid, mode, selection, amount);
+    };
+
+    const rollbackSession = (session: MeshEditDragSession, stopGizmo = true) => {
       if (!backend) return;
-      const active = getActiveEditableNode();
-      if (!active) {
-        showToast("Select a mesh first", "warning");
+      backend.setMeshGeometryData(session.runtimeUuid, session.beforeGeometry);
+      replaceMeshSelection(session.mode, session.beforeSelection);
+      persistEditedGeometry(session.nodeId, session.runtimeUuid);
+      meshEditDragSessionRef.current = null;
+      if (stopGizmo) {
+        backend.stopMeshEditGizmo();
+      }
+    };
+
+    const previewSessionAmount = (session: MeshEditDragSession, amount: number) => {
+      if (!backend) return null;
+      if (!backend.setMeshGeometryData(session.runtimeUuid, session.beforeGeometry)) {
+        return null;
+      }
+      const preview = runMeshOp(
+        session.operation,
+        session.runtimeUuid,
+        session.mode,
+        session.beforeSelection,
+        amount
+      );
+      if (!preview) {
+        replaceMeshSelection(session.mode, session.beforeSelection);
+        return null;
+      }
+      session.previewSelection = cloneMeshSelection(preview.selection);
+      replaceMeshSelection(session.mode, session.previewSelection);
+      return preview;
+    };
+
+    const finalizeSession = (session: MeshEditDragSession, amount: number) => {
+      if (!backend) return;
+
+      if (!backend.setMeshGeometryData(session.runtimeUuid, session.beforeGeometry)) {
+        rollbackSession(session);
         return;
       }
-      if (useEditorStore.getState().meshEditMode === "object") {
-        showToast("Enable Vertex/Edge/Face mode first", "info");
-        return;
-      }
-      const faceIndex = active.selection?.faceIndex;
-      if (faceIndex === null || faceIndex === undefined || faceIndex < 0) {
-        showToast("Pick a mesh component first", "info");
+      const preview = runMeshOp(
+        session.operation,
+        session.runtimeUuid,
+        session.mode,
+        session.beforeSelection,
+        amount
+      );
+      if (!preview) {
+        rollbackSession(session);
+        showToast(`${session.operation === "extrude" ? "Extrude" : "Bevel"} failed`, "error");
         return;
       }
 
-      backend.ensureMeshEditable(active.runtimeUuid);
-
-      const before = backend.getMeshGeometryData(active.runtimeUuid);
-      if (!before) {
-        showToast("Mesh geometry is not editable", "error");
+      const afterGeometry = backend.getMeshGeometryData(session.runtimeUuid);
+      if (!afterGeometry) {
+        rollbackSession(session);
+        showToast("Could not capture mesh result", "error");
         return;
       }
 
-      const ok = mutate(active.runtimeUuid, faceIndex, amount);
-      if (!ok) {
-        showToast("Operation failed on selected component", "error");
-        return;
-      }
+      const beforeGeometry = structuredClone(session.beforeGeometry);
+      const beforeSelection = cloneMeshSelection(session.beforeSelection);
+      const afterSelection = cloneMeshSelection(preview.selection);
 
-      const after = backend.getMeshGeometryData(active.runtimeUuid);
-      if (!after) {
-        backend.setMeshGeometryData(active.runtimeUuid, before);
-        showToast("Could not capture mesh edit result", "error");
-        return;
-      }
-
-      persistEditedGeometry(active.nodeId, active.runtimeUuid);
-      if (active.selection) {
-        backend.highlightMeshComponent(active.runtimeUuid, active.selection);
-      }
+      persistEditedGeometry(session.nodeId, session.runtimeUuid);
+      meshEditDragSessionRef.current = null;
+      backend.stopMeshEditGizmo();
 
       let skipInitialExecute = true;
       commandStack.execute({
-        label,
+        label:
+          session.operation === "extrude"
+            ? `Extrude ${session.mode}`
+            : `Bevel ${session.mode}`,
         execute: () => {
+          if (!backend) return;
           if (skipInitialExecute) {
             skipInitialExecute = false;
             return;
           }
-          if (!backend) return;
-          backend.setMeshGeometryData(active.runtimeUuid, after);
-          persistEditedGeometry(active.nodeId, active.runtimeUuid);
-          const nextSelection = useEditorStore.getState().meshEditSelection;
-          if (nextSelection) {
-            backend.highlightMeshComponent(active.runtimeUuid, nextSelection);
-          }
+          backend.setMeshGeometryData(session.runtimeUuid, afterGeometry);
+          replaceMeshSelection(session.mode, afterSelection);
+          persistEditedGeometry(session.nodeId, session.runtimeUuid);
         },
         undo: () => {
           if (!backend) return;
-          backend.setMeshGeometryData(active.runtimeUuid, before);
-          persistEditedGeometry(active.nodeId, active.runtimeUuid);
-          const nextSelection = useEditorStore.getState().meshEditSelection;
-          if (nextSelection) {
-            backend.highlightMeshComponent(active.runtimeUuid, nextSelection);
-          }
+          backend.setMeshGeometryData(session.runtimeUuid, beforeGeometry);
+          replaceMeshSelection(session.mode, beforeSelection);
+          persistEditedGeometry(session.nodeId, session.runtimeUuid);
         },
       });
       useEditorStore.getState().refreshUndoState();
     };
 
+    const startOperation = (operation: MeshEditOperation, rawAmount?: number) => {
+      if (!backend) return;
+      const active = resolveActiveEditableMesh();
+      if (!active) {
+        showToast("Select a mesh in edit mode first", "warning");
+        return;
+      }
+      if (!hasMeshSelection(active.selection)) {
+        showToast("Select vertices/edges/faces first", "info");
+        return;
+      }
+      if (operation === "bevel" && active.mode === "face") {
+        showToast("Bevel is disabled in face mode (vertex/edge only)", "info");
+        return;
+      }
+
+      backend.ensureMeshEditable(active.runtimeUuid);
+      const beforeGeometry = backend.getMeshGeometryData(active.runtimeUuid);
+      if (!beforeGeometry) {
+        showToast("Mesh geometry is not editable", "error");
+        return;
+      }
+
+      const pivotNormal = backend.getMeshSelectionPivotNormal(
+        active.runtimeUuid,
+        active.mode,
+        active.selection
+      );
+      if (!pivotNormal) {
+        showToast("Selection has no valid region", "warning");
+        return;
+      }
+
+      const baseAmount = Number(
+        rawAmount ??
+          (operation === "extrude"
+            ? (window as Window & { __meshExtrudeAmount?: number }).__meshExtrudeAmount ?? 0
+            : (window as Window & { __meshBevelAmount?: number }).__meshBevelAmount ?? 0)
+      );
+      const session: MeshEditDragSession = {
+        operation,
+        mode: active.mode,
+        nodeId: active.nodeId,
+        runtimeUuid: active.runtimeUuid,
+        baseAmount: Number.isFinite(baseAmount) ? baseAmount : 0,
+        beforeGeometry,
+        beforeSelection: cloneMeshSelection(active.selection),
+        previewSelection: cloneMeshSelection(active.selection),
+      };
+
+      if (meshEditDragSessionRef.current) {
+        backend?.cancelMeshEditGizmo();
+      }
+
+      meshEditDragSessionRef.current = session;
+      setIsBoxSelectionArmed(false);
+      setBoxSelectionRect(null);
+      boxSelectionRef.current = null;
+      backend?.startMeshEditGizmo(pivotNormal.pivot, pivotNormal.normal);
+
+      if (Math.abs(session.baseAmount) > 1e-6) {
+        previewSessionAmount(session, session.baseAmount);
+      }
+    };
+
     const handleSetMeshEditMode = (e: Event) => {
-      const mode = (e as CustomEvent).detail?.mode as
-        | "object"
-        | "vertex"
-        | "edge"
-        | "face"
-        | undefined;
+      const mode = (e as CustomEvent).detail?.mode as MeshEditMode | undefined;
       if (!mode) return;
+      if (meshEditDragSessionRef.current) {
+        backend?.cancelMeshEditGizmo();
+      }
+      cancelBoxSelection();
       setMeshEditMode(mode);
-      clearMeshEditSelection();
-      backend?.clearMeshEditHighlight();
+      if (mode === "object") {
+        backend?.clearMeshEditHighlight();
+      }
     };
 
-    const handleExtrude = (e: Event) => {
-      const distance = Number((e as CustomEvent).detail?.distance ?? 0.2);
-      applyMeshCommand("Extrude Face", (runtimeUuid, faceIndex, d) => {
-        return backend ? backend.extrudeMeshFace(runtimeUuid, faceIndex, d) : false;
-      }, distance);
+    const handleStartExtrude = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      const amount =
+        typeof detail.distance === "number"
+          ? detail.distance
+          : typeof detail.amount === "number"
+            ? detail.amount
+            : undefined;
+      startOperation("extrude", amount);
     };
 
-    const handleBevel = (e: Event) => {
-      const amount = Number((e as CustomEvent).detail?.amount ?? 0.08);
-      applyMeshCommand("Bevel Face", (runtimeUuid, faceIndex, a) => {
-        return backend ? backend.bevelMeshFace(runtimeUuid, faceIndex, a) : false;
-      }, amount);
+    const handleStartBevel = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      const amount =
+        typeof detail.amount === "number"
+          ? detail.amount
+          : typeof detail.distance === "number"
+            ? detail.distance
+            : undefined;
+      startOperation("bevel", amount);
     };
+
+    const handleCancelOperation = () => {
+      if (boxSelectionRef.current) {
+        cancelBoxSelection();
+      }
+      if (meshEditDragSessionRef.current) {
+        backend?.cancelMeshEditGizmo();
+      }
+    };
+
+    backend.onMeshEditGizmoChange((phase, deltaAmount) => {
+      const session = meshEditDragSessionRef.current;
+      if (!session) return;
+
+      const amount = session.baseAmount + deltaAmount;
+      if (phase === "change") {
+        previewSessionAmount(session, amount);
+        return;
+      }
+      if (phase === "end") {
+        finalizeSession(session, amount);
+        return;
+      }
+      if (phase === "cancel") {
+        rollbackSession(session, false);
+      }
+    });
 
     window.addEventListener("editor:set-mesh-edit-mode", handleSetMeshEditMode);
-    window.addEventListener("editor:mesh-extrude", handleExtrude);
-    window.addEventListener("editor:mesh-bevel", handleBevel);
+    window.addEventListener("editor:mesh-start-extrude", handleStartExtrude);
+    window.addEventListener("editor:mesh-start-bevel", handleStartBevel);
+    window.addEventListener("editor:mesh-cancel-operation", handleCancelOperation);
+    window.addEventListener("editor:mesh-extrude", handleStartExtrude);
+    window.addEventListener("editor:mesh-bevel", handleStartBevel);
 
     return () => {
       window.removeEventListener("editor:set-mesh-edit-mode", handleSetMeshEditMode);
-      window.removeEventListener("editor:mesh-extrude", handleExtrude);
-      window.removeEventListener("editor:mesh-bevel", handleBevel);
+      window.removeEventListener("editor:mesh-start-extrude", handleStartExtrude);
+      window.removeEventListener("editor:mesh-start-bevel", handleStartBevel);
+      window.removeEventListener("editor:mesh-cancel-operation", handleCancelOperation);
+      window.removeEventListener("editor:mesh-extrude", handleStartExtrude);
+      window.removeEventListener("editor:mesh-bevel", handleStartBevel);
+      backend?.onMeshEditGizmoChange(() => {});
+      if (meshEditDragSessionRef.current) {
+        backend?.cancelMeshEditGizmo();
+      }
     };
-  }, [clearMeshEditSelection, setMeshEditMode]);
+  }, [cancelBoxSelection, replaceMeshSelection, resolveActiveEditableMesh, setMeshEditMode]);
+
+  useEffect(() => {
+    if (!backend) return;
+    const session = meshEditDragSessionRef.current;
+    if (!session) return;
+
+    const state = useEditorStore.getState();
+    if (state.meshEditMode === "object") {
+      backend?.cancelMeshEditGizmo();
+      return;
+    }
+    if (state.meshEditMode !== session.mode) {
+      backend?.cancelMeshEditGizmo();
+      return;
+    }
+    const node = state.selectedNodeId ? state.document.nodes[state.selectedNodeId] : null;
+    if (!node || node.type !== "mesh" || node.runtimeObjectUuid !== session.runtimeUuid) {
+      backend?.cancelMeshEditGizmo();
+    }
+  }, [document.nodes, meshEditMode, selectedNodeId]);
 
   // ── Handle transform updates from Inspector ──
   useEffect(() => {
@@ -2158,6 +2648,17 @@ export const Viewport: React.FC = () => {
     return () => clearInterval(interval);
   }, [showStats]);
 
+  const canvasRect = canvasRef.current?.getBoundingClientRect() ?? null;
+  const boxSelectionStyle =
+    boxSelectionRect && canvasRect
+      ? {
+          left: `${Math.min(boxSelectionRect.x0, boxSelectionRect.x1) - canvasRect.left}px`,
+          top: `${Math.min(boxSelectionRect.y0, boxSelectionRect.y1) - canvasRect.top}px`,
+          width: `${Math.max(1, Math.abs(boxSelectionRect.x1 - boxSelectionRect.x0))}px`,
+          height: `${Math.max(1, Math.abs(boxSelectionRect.y1 - boxSelectionRect.y0))}px`,
+        }
+      : null;
+
   return (
     <div
       className={`viewport-container${
@@ -2166,8 +2667,12 @@ export const Viewport: React.FC = () => {
     >
       <canvas
         ref={canvasRef}
-        className="viewport-canvas"
+        className={`viewport-canvas${isBoxSelectionArmed ? " viewport-canvas-box-select" : ""}`}
         onClick={handleCanvasClick}
+        onPointerDown={handleCanvasPointerDown}
+        onPointerMove={handleCanvasPointerMove}
+        onPointerUp={handleCanvasPointerUp}
+        onPointerCancel={handleCanvasPointerCancel}
         onDoubleClick={handleCanvasDoubleClick}
         onMouseMove={handleCanvasMouseMove}
       />
@@ -2178,6 +2683,13 @@ export const Viewport: React.FC = () => {
         className="viewport-project-file-input"
         onChange={handleProjectFileInputChange}
       />
+
+      {boxSelectionStyle && (
+        <div
+          className="viewport-box-select-rect"
+          style={boxSelectionStyle}
+        />
+      )}
 
       {/* Stats overlay */}
       {showStats && stats && (

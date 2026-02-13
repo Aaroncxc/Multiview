@@ -524,6 +524,12 @@
   border-color: var(--accent-border-strong);
 }
 
+.modeling-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--text-tertiary);
+}
+
 .inspector-poly-edit-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

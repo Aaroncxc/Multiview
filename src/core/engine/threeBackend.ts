@@ -31,6 +31,23 @@ import type {
   ParticleEmitterData,
   MeshGeometryData,
 } from "../document/types";
+import {
+  buildPolyTopology,
+  collectBoundaryEdgesForFaceRegion,
+  collectEdgesForFaces,
+  collectFacesForEdges,
+  collectFacesForVertices,
+  collectVerticesForFaces,
+  computeFaceSelectionCentroidNormal,
+  edgeKey,
+  normalizeEdge,
+  type MeshEditSelectionSet,
+  type PolyTopology,
+} from "./polyTopology";
+import {
+  bevelFacesSimple,
+  extrudeFacesRegion,
+} from "./polyOps";
 
 export interface LoadGLTFResult {
   rootObjectUuid: string;
@@ -48,16 +65,23 @@ export type MeshComponentMode = "vertex" | "edge" | "face";
 export interface MeshComponentPickResult {
   objectUuid: string;
   mode: MeshComponentMode;
-  faceIndex: number;
+  faceIndex: number | null;
   vertexIndex: number | null;
   edge: [number, number] | null;
 }
 
-export interface MeshComponentSelection {
+export interface MeshComponentRectResult {
   mode: MeshComponentMode;
-  faceIndex: number | null;
-  vertexIndex: number | null;
-  edge: [number, number] | null;
+  faces: number[];
+  edges: Array<[number, number]>;
+  vertices: number[];
+}
+
+export type MeshEditGizmoPhase = "start" | "change" | "end" | "cancel";
+
+export interface MeshEditSelectionPreview {
+  mode: MeshComponentMode;
+  selection: MeshEditSelectionSet;
 }
 
 export interface RenderStats {
@@ -124,6 +148,12 @@ export class ThreeBackend {
   // ── Selection Outline ──
   private selectionHelper: THREE.BoxHelper | null = null;
   private meshEditHelper: THREE.Object3D | null = null;
+  private topologyCache = new Map<string, { signature: string; topology: PolyTopology }>();
+  private meshEditGizmo!: TransformControls;
+  private meshEditGizmoAnchor: THREE.Object3D | null = null;
+  private meshEditGizmoStartPosition = new THREE.Vector3();
+  private meshEditGizmoNormal = new THREE.Vector3(0, 1, 0);
+  private onMeshEditGizmoDrag?: (phase: MeshEditGizmoPhase, amount: number) => void;
 
   // ── Physics (cannon-es) ──
   private world: CANNON.World | null = null;
@@ -221,6 +251,30 @@ export class ThreeBackend {
       this.handleGizmoChange();
     });
     this.scene.add(this.gizmo.getHelper());
+
+    // Poly-edit gizmo (separate from object transform gizmo)
+    this.meshEditGizmo = new TransformControls(this.camera, canvas);
+    this.meshEditGizmo.setMode("translate");
+    this.meshEditGizmo.setSpace("local");
+    this.meshEditGizmo.showX = false;
+    this.meshEditGizmo.showY = false;
+    this.meshEditGizmo.showZ = true;
+    this.meshEditGizmo.addEventListener("dragging-changed", (event) => {
+      this.orbit.enabled = !event.value;
+      if (event.value) {
+        this.meshEditGizmoStartPosition.copy(
+          this.meshEditGizmoAnchor?.position ?? new THREE.Vector3()
+        );
+        this.onMeshEditGizmoDrag?.("start", 0);
+      } else {
+        this.onMeshEditGizmoDrag?.("end", this.getMeshEditGizmoAmount());
+      }
+    });
+    this.meshEditGizmo.addEventListener("objectChange", () => {
+      this.onMeshEditGizmoDrag?.("change", this.getMeshEditGizmoAmount());
+    });
+    this.scene.add(this.meshEditGizmo.getHelper());
+    this.meshEditGizmo.getHelper().visible = false;
 
     // Post-processing
     this.setupPostProcessing();
@@ -1303,6 +1357,7 @@ export class ThreeBackend {
       mesh.geometry = nonIndexed;
       geometry.dispose();
       geometry = nonIndexed;
+      this.topologyCache.delete(mesh.uuid);
     }
 
     const positionAttr = geometry.getAttribute("position");
@@ -1346,6 +1401,7 @@ export class ThreeBackend {
 
     // Ensure mesh references updated geometry data for culling.
     mesh.geometry = geometry;
+    this.topologyCache.delete(mesh.uuid);
     return true;
   }
 
@@ -1401,6 +1457,156 @@ export class ThreeBackend {
     return point.distanceToSquared(projection);
   }
 
+  private getGeometrySignature(geometry: THREE.BufferGeometry): string {
+    const position = geometry.getAttribute("position");
+    if (!(position instanceof THREE.BufferAttribute)) return "none";
+    return `${geometry.id}:${position.count}:${position.version}`;
+  }
+
+  private getMeshTopology(mesh: THREE.Mesh): PolyTopology | null {
+    const geometry = this.ensureNonIndexedGeometry(mesh);
+    if (!geometry) return null;
+    const positionAttr = geometry.getAttribute("position");
+    if (!(positionAttr instanceof THREE.BufferAttribute) || positionAttr.itemSize !== 3) {
+      return null;
+    }
+
+    const signature = this.getGeometrySignature(geometry);
+    const cached = this.topologyCache.get(mesh.uuid);
+    if (cached && cached.signature === signature) {
+      return cached.topology;
+    }
+
+    const topology = buildPolyTopology(positionAttr.array as ArrayLike<number>);
+    this.topologyCache.set(mesh.uuid, { signature, topology });
+    return topology;
+  }
+
+  private buildSelectionFromFaces(
+    topology: PolyTopology,
+    mode: MeshComponentMode,
+    faceIds: number[]
+  ): MeshEditSelectionSet {
+    const faces = Array.from(
+      new Set(
+        faceIds
+          .filter((id) => Number.isInteger(id) && id >= 0 && id < topology.faces.length)
+          .sort((a, b) => a - b)
+      )
+    );
+    const edges = collectEdgesForFaces(topology, faces);
+    const vertices = collectVerticesForFaces(topology, faces);
+
+    if (mode === "vertex") {
+      return {
+        faces,
+        edges,
+        vertices,
+        active: vertices.length > 0 ? { kind: "vertex", vertex: vertices[0]! } : null,
+      };
+    }
+    if (mode === "edge") {
+      return {
+        faces,
+        edges,
+        vertices,
+        active: edges.length > 0 ? { kind: "edge", edge: edges[0]! } : null,
+      };
+    }
+    return {
+      faces,
+      edges,
+      vertices,
+      active: faces.length > 0 ? { kind: "face", face: faces[0]! } : null,
+    };
+  }
+
+  private expandCoplanarFaceRegion(
+    topology: PolyTopology,
+    seedFaceIds: number[]
+  ): number[] {
+    const seeds = Array.from(
+      new Set(
+        seedFaceIds.filter(
+          (faceId) =>
+            Number.isInteger(faceId) && faceId >= 0 && faceId < topology.faces.length
+        )
+      )
+    );
+    if (seeds.length === 0) return [];
+
+    const normalDotThreshold = 0.999;
+    const planeEpsilon = 1e-4;
+    const region = new Set<number>(seeds);
+    const queue = [...seeds];
+
+    const isCoplanarNeighbor = (faceId: number, neighborId: number): boolean => {
+      const face = topology.faces[faceId];
+      const neighbor = topology.faces[neighborId];
+      if (!face || !neighbor) return false;
+
+      const dot =
+        face.normal.x * neighbor.normal.x +
+        face.normal.y * neighbor.normal.y +
+        face.normal.z * neighbor.normal.z;
+      if (dot < normalDotThreshold) return false;
+
+      const dx = neighbor.centroid.x - face.centroid.x;
+      const dy = neighbor.centroid.y - face.centroid.y;
+      const dz = neighbor.centroid.z - face.centroid.z;
+      const planeDistance = Math.abs(
+        dx * face.normal.x + dy * face.normal.y + dz * face.normal.z
+      );
+      return planeDistance <= planeEpsilon;
+    };
+
+    while (queue.length > 0) {
+      const faceId = queue.pop()!;
+      for (const edgeId of topology.faceToEdges[faceId] ?? []) {
+        const edge = topology.edges[edgeId];
+        if (!edge) continue;
+        for (const neighborId of edge.faces) {
+          if (region.has(neighborId)) continue;
+          if (!isCoplanarNeighbor(faceId, neighborId)) continue;
+          region.add(neighborId);
+          queue.push(neighborId);
+        }
+      }
+    }
+
+    return Array.from(region.values()).sort((a, b) => a - b);
+  }
+
+  private getSelectedFacesForMode(
+    topology: PolyTopology,
+    mode: MeshComponentMode,
+    selection: MeshEditSelectionSet
+  ): number[] {
+    if (mode === "face") {
+      return this.expandCoplanarFaceRegion(topology, selection.faces);
+    }
+    if (mode === "edge") {
+      return collectFacesForEdges(topology, selection.edges);
+    }
+    return collectFacesForVertices(topology, selection.vertices);
+  }
+
+  private isWorldPointVisibleOnMesh(mesh: THREE.Mesh, worldPoint: THREE.Vector3): boolean {
+    const dir = worldPoint.clone().sub(this.camera.position);
+    const targetDistance = dir.length();
+    if (!Number.isFinite(targetDistance) || targetDistance <= 1e-8) return false;
+
+    dir.normalize();
+    this.raycaster.set(this.camera.position, dir);
+    const hit = this.raycaster
+      .intersectObject(mesh, false)
+      .find((entry) => entry.object instanceof THREE.Mesh);
+    if (!hit) return false;
+
+    const tolerance = Math.max(0.01, targetDistance * 0.01);
+    return Math.abs(hit.distance - targetDistance) <= tolerance;
+  }
+
   ensureMeshEditable(objectUuid: string): boolean {
     const mesh = this.resolveEditableMesh(objectUuid);
     if (!mesh) return false;
@@ -1442,6 +1648,7 @@ export class ThreeBackend {
       mesh.geometry.dispose();
     }
     mesh.geometry = nextGeometry;
+    this.topologyCache.delete(mesh.uuid);
 
     if (this.selectionHelper) {
       this.selectionHelper.update();
@@ -1476,26 +1683,20 @@ export class ThreeBackend {
     if (!hit) return null;
 
     const mesh = hit.object as THREE.Mesh;
-    const geometry = this.ensureNonIndexedGeometry(mesh);
-    if (!geometry) return null;
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) return null;
 
-    const positionAttr = geometry.getAttribute("position");
-    if (!positionAttr || positionAttr.itemSize !== 3) return null;
+    const faceIndex = hit.faceIndex ?? null;
+    if (faceIndex === null || faceIndex < 0 || faceIndex >= topology.faces.length) {
+      return null;
+    }
+    const face = topology.faces[faceIndex]!;
 
-    const faceIndex = hit.faceIndex ?? 0;
-    const triStartVertex = faceIndex * 3;
-    if (triStartVertex + 2 >= positionAttr.count) return null;
-
-    const triIndices: [number, number, number] = [
-      triStartVertex,
-      triStartVertex + 1,
-      triStartVertex + 2,
-    ];
-
-    const worldVerts = triIndices.map((idx) =>
-      new THREE.Vector3().fromBufferAttribute(
-        positionAttr as THREE.BufferAttribute,
-        idx
+    const worldVerts = face.vertices.map((vertexId) =>
+      new THREE.Vector3(
+        topology.vertices[vertexId]!.x,
+        topology.vertices[vertexId]!.y,
+        topology.vertices[vertexId]!.z
       ).applyMatrix4(mesh.matrixWorld)
     );
 
@@ -1504,28 +1705,28 @@ export class ThreeBackend {
 
     if (mode === "vertex") {
       const distances = worldVerts.map((v, i) => ({
-        idx: triIndices[i]!,
+        idx: face.vertices[i]!,
         d: v.distanceToSquared(hit.point),
       }));
       distances.sort((a, b) => a.d - b.d);
       vertexIndex = distances[0]?.idx ?? null;
     } else if (mode === "edge") {
-      const edges: Array<{ pair: [number, number]; d: number }> = [
+      const candidateEdges: Array<{ pair: [number, number]; d: number }> = [
         {
-          pair: [triIndices[0], triIndices[1]],
+          pair: normalizeEdge(face.vertices[0], face.vertices[1]),
           d: this.pointToSegmentDistanceSq(hit.point, worldVerts[0]!, worldVerts[1]!),
         },
         {
-          pair: [triIndices[1], triIndices[2]],
+          pair: normalizeEdge(face.vertices[1], face.vertices[2]),
           d: this.pointToSegmentDistanceSq(hit.point, worldVerts[1]!, worldVerts[2]!),
         },
         {
-          pair: [triIndices[2], triIndices[0]],
+          pair: normalizeEdge(face.vertices[2], face.vertices[0]),
           d: this.pointToSegmentDistanceSq(hit.point, worldVerts[2]!, worldVerts[0]!),
         },
       ];
-      edges.sort((a, b) => a.d - b.d);
-      edge = edges[0]?.pair ?? null;
+      candidateEdges.sort((a, b) => a.d - b.d);
+      edge = candidateEdges[0]?.pair ?? null;
     }
 
     return {
@@ -1537,19 +1738,97 @@ export class ThreeBackend {
     };
   }
 
+  pickMeshComponentsInRect(
+    objectUuid: string,
+    rect: { x0: number; y0: number; x1: number; y1: number },
+    mode: MeshComponentMode
+  ): MeshComponentRectResult {
+    const mesh = this.resolveEditableMesh(objectUuid);
+    if (!mesh) {
+      return { mode, faces: [], edges: [], vertices: [] };
+    }
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) {
+      return { mode, faces: [], edges: [], vertices: [] };
+    }
+
+    const minX = Math.min(rect.x0, rect.x1);
+    const maxX = Math.max(rect.x0, rect.x1);
+    const minY = Math.min(rect.y0, rect.y1);
+    const maxY = Math.max(rect.y0, rect.y1);
+    const viewportRect = this.canvas.getBoundingClientRect();
+
+    const worldToScreen = (pointWorld: THREE.Vector3): [number, number] => {
+      const projected = pointWorld.clone().project(this.camera);
+      const screenX = ((projected.x + 1) * 0.5) * viewportRect.width + viewportRect.left;
+      const screenY = ((1 - projected.y) * 0.5) * viewportRect.height + viewportRect.top;
+      return [screenX, screenY];
+    };
+
+    const insideRect = (pointWorld: THREE.Vector3): boolean => {
+      const [sx, sy] = worldToScreen(pointWorld);
+      return sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
+    };
+
+    const result: MeshComponentRectResult = {
+      mode,
+      faces: [],
+      edges: [],
+      vertices: [],
+    };
+
+    if (mode === "face") {
+      for (const face of topology.faces) {
+        const worldCenter = new THREE.Vector3(
+          face.centroid.x,
+          face.centroid.y,
+          face.centroid.z
+        ).applyMatrix4(mesh.matrixWorld);
+        if (!insideRect(worldCenter)) continue;
+        if (!this.isWorldPointVisibleOnMesh(mesh, worldCenter)) continue;
+        result.faces.push(face.id);
+      }
+      return result;
+    }
+
+    if (mode === "edge") {
+      for (const edge of topology.edges) {
+        const a = topology.vertices[edge.vertices[0]]!;
+        const b = topology.vertices[edge.vertices[1]]!;
+        const center = new THREE.Vector3(
+          (a.x + b.x) * 0.5,
+          (a.y + b.y) * 0.5,
+          (a.z + b.z) * 0.5
+        ).applyMatrix4(mesh.matrixWorld);
+        if (!insideRect(center)) continue;
+        if (!this.isWorldPointVisibleOnMesh(mesh, center)) continue;
+        result.edges.push(edge.vertices);
+      }
+      return result;
+    }
+
+    for (let vertexId = 0; vertexId < topology.vertices.length; vertexId++) {
+      const vertex = topology.vertices[vertexId]!;
+      const world = new THREE.Vector3(vertex.x, vertex.y, vertex.z).applyMatrix4(
+        mesh.matrixWorld
+      );
+      if (!insideRect(world)) continue;
+      if (!this.isWorldPointVisibleOnMesh(mesh, world)) continue;
+      result.vertices.push(vertexId);
+    }
+    return result;
+  }
+
   clearMeshEditHighlight() {
     if (!this.meshEditHelper) return;
     this.scene.remove(this.meshEditHelper);
     this.meshEditHelper.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-      if (child instanceof THREE.Line || child instanceof THREE.LineSegments) {
+      if (
+        child instanceof THREE.Mesh ||
+        child instanceof THREE.Line ||
+        child instanceof THREE.LineSegments ||
+        child instanceof THREE.InstancedMesh
+      ) {
         child.geometry.dispose();
         if (Array.isArray(child.material)) {
           child.material.forEach((m) => m.dispose());
@@ -1561,113 +1840,226 @@ export class ThreeBackend {
     this.meshEditHelper = null;
   }
 
-  highlightMeshComponent(objectUuid: string, selection: MeshComponentSelection | null) {
+  highlightMeshComponent(objectUuid: string, selection: MeshEditSelectionSet | null) {
     this.clearMeshEditHighlight();
     if (!selection) return;
+    if (
+      selection.faces.length === 0 &&
+      selection.edges.length === 0 &&
+      selection.vertices.length === 0
+    ) {
+      return;
+    }
 
     const mesh = this.resolveEditableMesh(objectUuid);
     if (!mesh) return;
-    const geometry = this.ensureNonIndexedGeometry(mesh);
-    if (!geometry) return;
-    const positionAttr = geometry.getAttribute("position");
-    if (!positionAttr || positionAttr.itemSize !== 3) return;
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) return;
 
     const helperGroup = new THREE.Group();
     helperGroup.name = "__selection_poly";
-
-    const faceIndex = selection.faceIndex ?? 0;
-    const triStart = faceIndex * 3;
-    if (triStart + 2 >= positionAttr.count) return;
-
-    const triIndices: [number, number, number] = [
-      triStart,
-      triStart + 1,
-      triStart + 2,
-    ];
-
-    const faceVertsWorld = triIndices.map((idx) =>
-      new THREE.Vector3().fromBufferAttribute(
-        positionAttr as THREE.BufferAttribute,
-        idx
-      ).applyMatrix4(mesh.matrixWorld)
-    );
-
     const accent = 0xf45c1e;
+    const activeAccent = 0xffd68a;
 
-    if (selection.mode === "face") {
-      const fillGeo = new THREE.BufferGeometry().setFromPoints(faceVertsWorld);
-      const fillMat = new THREE.MeshBasicMaterial({
-        color: accent,
-        transparent: true,
-        opacity: 0.22,
-        depthTest: false,
-        side: THREE.DoubleSide,
-      });
-      const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-      fillMesh.renderOrder = 9996;
-      helperGroup.add(fillMesh);
+    if (selection.faces.length > 0) {
+      const facePos: number[] = [];
+      const faceLines: number[] = [];
+      for (const faceId of selection.faces) {
+        const face = topology.faces[faceId];
+        if (!face) continue;
+        const p0 = new THREE.Vector3(
+          topology.vertices[face.vertices[0]]!.x,
+          topology.vertices[face.vertices[0]]!.y,
+          topology.vertices[face.vertices[0]]!.z
+        ).applyMatrix4(mesh.matrixWorld);
+        const p1 = new THREE.Vector3(
+          topology.vertices[face.vertices[1]]!.x,
+          topology.vertices[face.vertices[1]]!.y,
+          topology.vertices[face.vertices[1]]!.z
+        ).applyMatrix4(mesh.matrixWorld);
+        const p2 = new THREE.Vector3(
+          topology.vertices[face.vertices[2]]!.x,
+          topology.vertices[face.vertices[2]]!.y,
+          topology.vertices[face.vertices[2]]!.z
+        ).applyMatrix4(mesh.matrixWorld);
+        facePos.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+        faceLines.push(
+          p0.x, p0.y, p0.z, p1.x, p1.y, p1.z,
+          p1.x, p1.y, p1.z, p2.x, p2.y, p2.z,
+          p2.x, p2.y, p2.z, p0.x, p0.y, p0.z
+        );
+      }
 
-      const lineGeo = new THREE.BufferGeometry().setFromPoints([
-        faceVertsWorld[0]!,
-        faceVertsWorld[1]!,
-        faceVertsWorld[2]!,
-        faceVertsWorld[0]!,
-      ]);
-      const line = new THREE.Line(
-        lineGeo,
-        new THREE.LineBasicMaterial({
-          color: accent,
-          depthTest: false,
-          transparent: true,
-          opacity: 0.98,
-        })
-      );
-      line.renderOrder = 9997;
-      helperGroup.add(line);
+      if (facePos.length > 0) {
+        const fillGeo = new THREE.BufferGeometry();
+        fillGeo.setAttribute("position", new THREE.Float32BufferAttribute(facePos, 3));
+        const fillMesh = new THREE.Mesh(
+          fillGeo,
+          new THREE.MeshBasicMaterial({
+            color: accent,
+            transparent: true,
+            opacity: 0.2,
+            depthTest: false,
+            side: THREE.DoubleSide,
+          })
+        );
+        fillMesh.renderOrder = 9995;
+        helperGroup.add(fillMesh);
+      }
+
+      if (faceLines.length > 0) {
+        const lineGeo = new THREE.BufferGeometry();
+        lineGeo.setAttribute("position", new THREE.Float32BufferAttribute(faceLines, 3));
+        const faceOutline = new THREE.LineSegments(
+          lineGeo,
+          new THREE.LineBasicMaterial({
+            color: accent,
+            transparent: true,
+            opacity: 0.94,
+            depthTest: false,
+          })
+        );
+        faceOutline.renderOrder = 9996;
+        helperGroup.add(faceOutline);
+      }
     }
 
-    if (selection.mode === "edge") {
-      const pair = selection.edge ?? [triIndices[0], triIndices[1]];
-      const a = new THREE.Vector3()
-        .fromBufferAttribute(positionAttr as THREE.BufferAttribute, pair[0])
-        .applyMatrix4(mesh.matrixWorld);
-      const b = new THREE.Vector3()
-        .fromBufferAttribute(positionAttr as THREE.BufferAttribute, pair[1])
-        .applyMatrix4(mesh.matrixWorld);
-      const edgeGeo = new THREE.BufferGeometry().setFromPoints([a, b]);
-      const edgeLine = new THREE.Line(
-        edgeGeo,
-        new THREE.LineBasicMaterial({
-          color: accent,
-          depthTest: false,
-          transparent: true,
-          opacity: 0.98,
-        })
-      );
-      edgeLine.renderOrder = 9997;
-      helperGroup.add(edgeLine);
+    if (selection.edges.length > 0) {
+      const edgeLines: number[] = [];
+      for (const [aId, bId] of selection.edges) {
+        const a = topology.vertices[aId];
+        const b = topology.vertices[bId];
+        if (!a || !b) continue;
+        const pa = new THREE.Vector3(a.x, a.y, a.z).applyMatrix4(mesh.matrixWorld);
+        const pb = new THREE.Vector3(b.x, b.y, b.z).applyMatrix4(mesh.matrixWorld);
+        edgeLines.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
+      }
+      if (edgeLines.length > 0) {
+        const edgeGeo = new THREE.BufferGeometry();
+        edgeGeo.setAttribute("position", new THREE.Float32BufferAttribute(edgeLines, 3));
+        const edgeSegments = new THREE.LineSegments(
+          edgeGeo,
+          new THREE.LineBasicMaterial({
+            color: accent,
+            transparent: true,
+            opacity: 0.98,
+            depthTest: false,
+          })
+        );
+        edgeSegments.renderOrder = 9997;
+        helperGroup.add(edgeSegments);
+      }
     }
 
-    if (selection.mode === "vertex") {
-      const vertexIndex = selection.vertexIndex ?? triIndices[0];
-      const worldPoint = new THREE.Vector3()
-        .fromBufferAttribute(positionAttr as THREE.BufferAttribute, vertexIndex)
-        .applyMatrix4(mesh.matrixWorld);
+    if (selection.vertices.length > 0) {
+      const geometry = this.ensureNonIndexedGeometry(mesh);
       const radius = THREE.MathUtils.clamp(
-        (geometry.boundingSphere?.radius ?? 1) * 0.035,
-        0.03,
-        0.12
+        (geometry?.boundingSphere?.radius ?? 1) * 0.03,
+        0.02,
+        0.08
       );
-      const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(radius, 12, 12),
-        new THREE.MeshBasicMaterial({
-          color: accent,
-          depthTest: false,
-        })
+      const markerGeometry = new THREE.SphereGeometry(radius, 10, 10);
+      const markerMaterial = new THREE.MeshBasicMaterial({
+        color: accent,
+        depthTest: false,
+      });
+      const markers = new THREE.InstancedMesh(
+        markerGeometry,
+        markerMaterial,
+        selection.vertices.length
       );
-      marker.position.copy(worldPoint);
-      marker.renderOrder = 9998;
-      helperGroup.add(marker);
+      markers.renderOrder = 9998;
+      const matrix = new THREE.Matrix4();
+      const scale = new THREE.Vector3(1, 1, 1);
+      const quaternion = new THREE.Quaternion();
+      selection.vertices.forEach((vertexId, idx) => {
+        const vertex = topology.vertices[vertexId];
+        if (!vertex) return;
+        const world = new THREE.Vector3(vertex.x, vertex.y, vertex.z).applyMatrix4(
+          mesh.matrixWorld
+        );
+        matrix.compose(world, quaternion, scale);
+        markers.setMatrixAt(idx, matrix);
+      });
+      markers.instanceMatrix.needsUpdate = true;
+      helperGroup.add(markers);
+    }
+
+    if (selection.active?.kind === "face") {
+      const face = topology.faces[selection.active.face];
+      if (face) {
+        const p0 = new THREE.Vector3(
+          topology.vertices[face.vertices[0]]!.x,
+          topology.vertices[face.vertices[0]]!.y,
+          topology.vertices[face.vertices[0]]!.z
+        ).applyMatrix4(mesh.matrixWorld);
+        const p1 = new THREE.Vector3(
+          topology.vertices[face.vertices[1]]!.x,
+          topology.vertices[face.vertices[1]]!.y,
+          topology.vertices[face.vertices[1]]!.z
+        ).applyMatrix4(mesh.matrixWorld);
+        const p2 = new THREE.Vector3(
+          topology.vertices[face.vertices[2]]!.x,
+          topology.vertices[face.vertices[2]]!.y,
+          topology.vertices[face.vertices[2]]!.z
+        ).applyMatrix4(mesh.matrixWorld);
+        const activeGeo = new THREE.BufferGeometry().setFromPoints([p0, p1, p2, p0]);
+        const activeLine = new THREE.Line(
+          activeGeo,
+          new THREE.LineBasicMaterial({
+            color: activeAccent,
+            depthTest: false,
+            transparent: true,
+            opacity: 1,
+          })
+        );
+        activeLine.renderOrder = 9999;
+        helperGroup.add(activeLine);
+      }
+    }
+
+    if (selection.active?.kind === "edge") {
+      const [aId, bId] = selection.active.edge;
+      const a = topology.vertices[aId];
+      const b = topology.vertices[bId];
+      if (a && b) {
+        const pa = new THREE.Vector3(a.x, a.y, a.z).applyMatrix4(mesh.matrixWorld);
+        const pb = new THREE.Vector3(b.x, b.y, b.z).applyMatrix4(mesh.matrixWorld);
+        const activeGeo = new THREE.BufferGeometry().setFromPoints([pa, pb]);
+        const activeLine = new THREE.Line(
+          activeGeo,
+          new THREE.LineBasicMaterial({
+            color: activeAccent,
+            depthTest: false,
+            transparent: true,
+            opacity: 1,
+          })
+        );
+        activeLine.renderOrder = 9999;
+        helperGroup.add(activeLine);
+      }
+    }
+
+    if (selection.active?.kind === "vertex") {
+      const vertex = topology.vertices[selection.active.vertex];
+      if (vertex) {
+        const geometry = this.ensureNonIndexedGeometry(mesh);
+        const radius = THREE.MathUtils.clamp(
+          (geometry?.boundingSphere?.radius ?? 1) * 0.04,
+          0.03,
+          0.12
+        );
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(radius, 12, 12),
+          new THREE.MeshBasicMaterial({
+            color: activeAccent,
+            depthTest: false,
+          })
+        );
+        marker.position.set(vertex.x, vertex.y, vertex.z).applyMatrix4(mesh.matrixWorld);
+        marker.renderOrder = 9999;
+        helperGroup.add(marker);
+      }
     }
 
     helperGroup.traverse((child) => {
@@ -1678,55 +2070,138 @@ export class ThreeBackend {
     this.meshEditHelper = helperGroup;
   }
 
-  extrudeMeshFace(objectUuid: string, faceIndex: number, distance: number): boolean {
+  getMeshSelectionPivotNormal(
+    objectUuid: string,
+    mode: MeshComponentMode,
+    selection: MeshEditSelectionSet
+  ): { pivot: [number, number, number]; normal: [number, number, number] } | null {
     const mesh = this.resolveEditableMesh(objectUuid);
-    if (!mesh) return false;
-    const geometry = this.ensureNonIndexedGeometry(mesh);
-    if (!geometry) return false;
-    const positionAttr = geometry.getAttribute("position");
-    if (!positionAttr || positionAttr.itemSize !== 3) return false;
+    if (!mesh) return null;
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) return null;
 
-    const triCount = Math.floor(positionAttr.count / 3);
-    if (faceIndex < 0 || faceIndex >= triCount) return false;
+    const faceIds = this.getSelectedFacesForMode(topology, mode, selection);
+    if (faceIds.length === 0) return null;
 
-    const d = THREE.MathUtils.clamp(distance, -10, 10);
-    if (Math.abs(d) < 1e-5) return false;
+    const centroidNormal = computeFaceSelectionCentroidNormal(topology, faceIds);
+    if (!centroidNormal) return null;
 
-    const src = Array.from(positionAttr.array as ArrayLike<number>);
-    const base = faceIndex * 9;
-    const v0 = new THREE.Vector3(src[base]!, src[base + 1]!, src[base + 2]!);
-    const v1 = new THREE.Vector3(src[base + 3]!, src[base + 4]!, src[base + 5]!);
-    const v2 = new THREE.Vector3(src[base + 6]!, src[base + 7]!, src[base + 8]!);
+    const pivotWorld = new THREE.Vector3(
+      centroidNormal.centroid.x,
+      centroidNormal.centroid.y,
+      centroidNormal.centroid.z
+    ).applyMatrix4(mesh.matrixWorld);
 
-    const normal = new THREE.Vector3()
-      .subVectors(v1, v0)
-      .cross(new THREE.Vector3().subVectors(v2, v0))
+    const normalWorld = new THREE.Vector3(
+      centroidNormal.normal.x,
+      centroidNormal.normal.y,
+      centroidNormal.normal.z
+    )
+      .transformDirection(mesh.matrixWorld)
       .normalize();
-    if (!Number.isFinite(normal.x + normal.y + normal.z) || normal.lengthSq() < 1e-8) {
-      return false;
+
+    return {
+      pivot: [pivotWorld.x, pivotWorld.y, pivotWorld.z],
+      normal: [normalWorld.x, normalWorld.y, normalWorld.z],
+    };
+  }
+
+  extrudeMeshSelection(
+    objectUuid: string,
+    mode: MeshComponentMode,
+    selection: MeshEditSelectionSet,
+    distance: number
+  ): MeshEditSelectionPreview | null {
+    const mesh = this.resolveEditableMesh(objectUuid);
+    if (!mesh) return null;
+    const geometry = this.ensureNonIndexedGeometry(mesh);
+    if (!geometry) return null;
+    const positionAttr = geometry.getAttribute("position");
+    if (!(positionAttr instanceof THREE.BufferAttribute) || positionAttr.itemSize !== 3) {
+      return null;
     }
 
-    const t0 = v0.clone().addScaledVector(normal, d);
-    const t1 = v1.clone().addScaledVector(normal, d);
-    const t2 = v2.clone().addScaledVector(normal, d);
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) return null;
+    const faceIds = this.getSelectedFacesForMode(topology, mode, selection);
+    if (faceIds.length === 0) return null;
 
-    const append: number[] = [];
-    const pushTri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
-      append.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    const op = extrudeFacesRegion(
+      positionAttr.array as ArrayLike<number>,
+      topology,
+      faceIds,
+      distance
+    );
+    if (!op) return null;
+
+    const applied = this.applyEditedPositionArray(mesh, geometry, op.nextPositions);
+    if (!applied) return null;
+
+    const nextTopology = this.getMeshTopology(mesh);
+    if (!nextTopology) return null;
+
+    return {
+      mode,
+      selection: this.buildSelectionFromFaces(nextTopology, mode, op.topFaceIds),
     };
+  }
 
-    // Top cap
-    pushTri(t0, t1, t2);
-    // Side walls
-    pushTri(v0, v1, t1);
-    pushTri(v0, t1, t0);
-    pushTri(v1, v2, t2);
-    pushTri(v1, t2, t1);
-    pushTri(v2, v0, t0);
-    pushTri(v2, t0, t2);
+  bevelMeshSelection(
+    objectUuid: string,
+    mode: MeshComponentMode,
+    selection: MeshEditSelectionSet,
+    amount: number
+  ): MeshEditSelectionPreview | null {
+    if (mode === "face") return null;
 
-    src.push(...append);
-    return this.applyEditedPositionArray(mesh, geometry, src);
+    const mesh = this.resolveEditableMesh(objectUuid);
+    if (!mesh) return null;
+    const geometry = this.ensureNonIndexedGeometry(mesh);
+    if (!geometry) return null;
+    const positionAttr = geometry.getAttribute("position");
+    if (!(positionAttr instanceof THREE.BufferAttribute) || positionAttr.itemSize !== 3) {
+      return null;
+    }
+
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) return null;
+    const faceIds = this.getSelectedFacesForMode(topology, mode, selection);
+    if (faceIds.length === 0) return null;
+
+    const op = bevelFacesSimple(
+      positionAttr.array as ArrayLike<number>,
+      topology,
+      faceIds,
+      amount
+    );
+    if (!op) return null;
+
+    const applied = this.applyEditedPositionArray(mesh, geometry, op.nextPositions);
+    if (!applied) return null;
+
+    const nextTopology = this.getMeshTopology(mesh);
+    if (!nextTopology) return null;
+
+    return {
+      mode,
+      selection: this.buildSelectionFromFaces(nextTopology, mode, op.topFaceIds),
+    };
+  }
+
+  // Legacy wrappers kept for existing event flows.
+  extrudeMeshFace(objectUuid: string, faceIndex: number, distance: number): boolean {
+    const result = this.extrudeMeshSelection(
+      objectUuid,
+      "face",
+      {
+        faces: [faceIndex],
+        edges: [],
+        vertices: [],
+        active: { kind: "face", face: faceIndex },
+      },
+      distance
+    );
+    return Boolean(result);
   }
 
   bevelMeshFace(objectUuid: string, faceIndex: number, amount: number): boolean {
@@ -1735,61 +2210,19 @@ export class ThreeBackend {
     const geometry = this.ensureNonIndexedGeometry(mesh);
     if (!geometry) return false;
     const positionAttr = geometry.getAttribute("position");
-    if (!positionAttr || positionAttr.itemSize !== 3) return false;
-
-    const triCount = Math.floor(positionAttr.count / 3);
-    if (faceIndex < 0 || faceIndex >= triCount) return false;
-
-    const bevelAmount = THREE.MathUtils.clamp(amount, 0.001, 2);
-    const insetFactor = THREE.MathUtils.clamp(bevelAmount * 0.35, 0.03, 0.46);
-    const height = THREE.MathUtils.clamp(bevelAmount * 0.5, 0.005, 1.5);
-
-    const src = Array.from(positionAttr.array as ArrayLike<number>);
-    const base = faceIndex * 9;
-    const v0 = new THREE.Vector3(src[base]!, src[base + 1]!, src[base + 2]!);
-    const v1 = new THREE.Vector3(src[base + 3]!, src[base + 4]!, src[base + 5]!);
-    const v2 = new THREE.Vector3(src[base + 6]!, src[base + 7]!, src[base + 8]!);
-
-    const normal = new THREE.Vector3()
-      .subVectors(v1, v0)
-      .cross(new THREE.Vector3().subVectors(v2, v0))
-      .normalize();
-    if (!Number.isFinite(normal.x + normal.y + normal.z) || normal.lengthSq() < 1e-8) {
+    if (!(positionAttr instanceof THREE.BufferAttribute) || positionAttr.itemSize !== 3) {
       return false;
     }
-
-    const centroid = v0.clone().add(v1).add(v2).multiplyScalar(1 / 3);
-    const r0 = v0.clone().lerp(centroid, insetFactor);
-    const r1 = v1.clone().lerp(centroid, insetFactor);
-    const r2 = v2.clone().lerp(centroid, insetFactor);
-    const t0 = r0.clone().addScaledVector(normal, height);
-    const t1 = r1.clone().addScaledVector(normal, height);
-    const t2 = r2.clone().addScaledVector(normal, height);
-
-    const append: number[] = [];
-    const pushTri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
-      append.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
-    };
-
-    // Outer bevel ring
-    pushTri(v0, v1, r1);
-    pushTri(v0, r1, r0);
-    pushTri(v1, v2, r2);
-    pushTri(v1, r2, r1);
-    pushTri(v2, v0, r0);
-    pushTri(v2, r0, r2);
-    // Upper side ring
-    pushTri(r0, r1, t1);
-    pushTri(r0, t1, t0);
-    pushTri(r1, r2, t2);
-    pushTri(r1, t2, t1);
-    pushTri(r2, r0, t0);
-    pushTri(r2, t0, t2);
-    // Top cap
-    pushTri(t0, t1, t2);
-
-    src.push(...append);
-    return this.applyEditedPositionArray(mesh, geometry, src);
+    const topology = this.getMeshTopology(mesh);
+    if (!topology) return false;
+    const op = bevelFacesSimple(
+      positionAttr.array as ArrayLike<number>,
+      topology,
+      [faceIndex],
+      amount
+    );
+    if (!op) return false;
+    return this.applyEditedPositionArray(mesh, geometry, op.nextPositions);
   }
 
   // ============================================================
@@ -1811,6 +2244,8 @@ export class ThreeBackend {
       if (child.name.startsWith("__selection_")) continue;
       if (child === this.gridHelper) continue;
       if (child === this.gizmo.getHelper()) continue;
+      if (child === this.meshEditGizmo.getHelper()) continue;
+      if (child === this.meshEditGizmoAnchor) continue;
       // Must be a user object we track
       if (this.objectByUuid.has(child.uuid)) {
         pickRoots.push(child);
@@ -1946,6 +2381,60 @@ export class ThreeBackend {
     };
 
     this.onGizmoChange(obj.uuid, transform);
+  }
+
+  private getMeshEditGizmoAmount(): number {
+    if (!this.meshEditGizmoAnchor) return 0;
+    const delta = this.meshEditGizmoAnchor.position
+      .clone()
+      .sub(this.meshEditGizmoStartPosition);
+    return delta.dot(this.meshEditGizmoNormal);
+  }
+
+  onMeshEditGizmoChange(
+    cb: (phase: MeshEditGizmoPhase, amount: number) => void
+  ) {
+    this.onMeshEditGizmoDrag = cb;
+  }
+
+  startMeshEditGizmo(
+    pivot: [number, number, number],
+    normal: [number, number, number]
+  ) {
+    this.stopMeshEditGizmo();
+
+    const anchor = new THREE.Object3D();
+    anchor.name = "__selection_poly_gizmo_anchor";
+    anchor.position.set(pivot[0], pivot[1], pivot[2]);
+    this.meshEditGizmoNormal
+      .set(normal[0], normal[1], normal[2])
+      .normalize();
+    if (!Number.isFinite(this.meshEditGizmoNormal.lengthSq()) || this.meshEditGizmoNormal.lengthSq() <= 1e-8) {
+      this.meshEditGizmoNormal.set(0, 1, 0);
+    }
+
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    anchor.quaternion.setFromUnitVectors(zAxis, this.meshEditGizmoNormal);
+    this.scene.add(anchor);
+    this.meshEditGizmoAnchor = anchor;
+    this.meshEditGizmoStartPosition.copy(anchor.position);
+
+    this.meshEditGizmo.attach(anchor);
+    this.meshEditGizmo.getHelper().visible = true;
+  }
+
+  stopMeshEditGizmo() {
+    this.meshEditGizmo.detach();
+    this.meshEditGizmo.getHelper().visible = false;
+    if (this.meshEditGizmoAnchor) {
+      this.scene.remove(this.meshEditGizmoAnchor);
+      this.meshEditGizmoAnchor = null;
+    }
+  }
+
+  cancelMeshEditGizmo() {
+    this.onMeshEditGizmoDrag?.("cancel", this.getMeshEditGizmoAmount());
+    this.stopMeshEditGizmo();
   }
 
   // ============================================================
@@ -2280,6 +2769,8 @@ export class ThreeBackend {
 
   /** Remove all user objects (for scene rebuild / project load) */
   clearAllUserObjects() {
+    this.stopMeshEditGizmo();
+    this.topologyCache.clear();
     const uuids = Array.from(this.objectByUuid.keys());
     for (const uuid of uuids) {
       this.removeObject(uuid);
@@ -2303,6 +2794,7 @@ export class ThreeBackend {
     // Cleanup
     obj.traverse((child) => {
       this.objectByUuid.delete(child.uuid);
+      this.topologyCache.delete(child.uuid);
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         if (Array.isArray(child.material)) {
@@ -2720,13 +3212,16 @@ export class ThreeBackend {
     cancelAnimationFrame(this.animFrameId);
     this.resizeObserver?.disconnect();
     this.clearMeshEditHighlight();
+    this.stopMeshEditGizmo();
     if (this.selectionHelper) {
       this.scene.remove(this.selectionHelper);
       this.selectionHelper.dispose();
     }
+    this.topologyCache.clear();
     this.bodyByUuid.clear();
     this.world = null;
     this.gizmo.dispose();
+    this.meshEditGizmo.dispose();
     this.orbit.dispose();
 
     // Dispose all geometries and materials
